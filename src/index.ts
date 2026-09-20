@@ -1,5 +1,6 @@
 import express, { Request, Response } from "express";
 import dotenv from "dotenv";
+import { sendWhatsAppMessage } from "./services/whatsapp.service";
 
 dotenv.config();
 
@@ -30,9 +31,58 @@ app.get("/webhook", (req: Request, res: Response) => {
   res.sendStatus(403);
 });
 
-app.post("/webhook", (req: Request, res: Response) => {
-  const payload = req.body as unknown;
-  console.log("WhatsApp webhook:", JSON.stringify(payload));
+interface WhatsAppWebhookPayload {
+  entry?: Array<{
+    changes?: Array<{
+      value?: {
+        contacts?: Array<{
+          profile?: { name?: string };
+          wa_id?: string;
+        }>;
+        messages?: Array<{
+          from?: string;
+        }>;
+      };
+    }>;
+  }>;
+}
+
+function extractIncomingWhatsAppMessage(payload: WhatsAppWebhookPayload): {
+  from: string;
+  name: string;
+} | null {
+  const value = payload.entry?.[0]?.changes?.[0]?.value;
+  const from = value?.messages?.[0]?.from;
+  const name = value?.contacts?.[0]?.profile?.name;
+
+  if (!from) {
+    return null;
+  }
+
+  return {
+    from,
+    name: name?.trim() || "amigo",
+  };
+}
+
+app.post("/webhook", async (req: Request, res: Response) => {
+  console.log("Webhook POST recibido:", JSON.stringify(req.body));
+
+  const incoming = extractIncomingWhatsAppMessage(req.body);
+  if (!incoming) {
+    res.sendStatus(200);
+    return;
+  }
+
+  try {
+    await sendWhatsAppMessage(
+      incoming.from,
+      `Hola ${incoming.name}, bienvenido a Senda`
+    );
+  } catch (error) {
+    console.error("Webhook: no se pudo responder al usuario", error);
+  }
+
   res.sendStatus(200);
 });
 
