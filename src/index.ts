@@ -1,18 +1,6 @@
 import express, { Request, Response } from "express";
 import dotenv from "dotenv";
-import {
-  ConversationStep,
-  getSession,
-  parseMenuOption,
-  setSession,
-} from "./services/session.service";
-import {
-  sendWhatsAppMessage,
-  sendWhatsAppVideo,
-  WELCOME_MENU_TEXT,
-  WELCOME_VIDEO_CAPTION,
-  WELCOME_VIDEO_URL,
-} from "./services/whatsapp.service";
+import { handleIncomingWhatsAppMessage } from "./services/conversation.service";
 
 dotenv.config();
 
@@ -82,38 +70,6 @@ function extractIncomingWhatsAppMessage(payload: WhatsAppWebhookPayload): {
   };
 }
 
-async function sendWelcomeFlow(to: string, name: string): Promise<void> {
-  try {
-    await sendWhatsAppVideo(to, WELCOME_VIDEO_URL, WELCOME_VIDEO_CAPTION);
-  } catch (error) {
-    console.error("Webhook: no se pudo enviar el video de bienvenida", error);
-  }
-
-  await sendWhatsAppMessage(to, WELCOME_MENU_TEXT);
-  setSession(to, { step: ConversationStep.AWAITING_MENU_OPTION, name });
-}
-
-async function handleMenuOption(
-  to: string,
-  name: string,
-  option: "1" | "2"
-): Promise<void> {
-  if (option === "1") {
-    setSession(to, { step: ConversationStep.RECEIVE_OR_WITHDRAW, name });
-    await sendWhatsAppMessage(
-      to,
-      "Perfecto. Vamos a ayudarte a recibir o retirar un pago del exterior."
-    );
-    return;
-  }
-
-  setSession(to, { step: ConversationStep.CHECK_TRANSFER, name });
-  await sendWhatsAppMessage(
-    to,
-    "Perfecto. Vamos a consultar el estado de tu transferencia."
-  );
-}
-
 app.post("/webhook", async (req: Request, res: Response) => {
   console.log("Webhook POST recibido:", JSON.stringify(req.body));
 
@@ -124,25 +80,11 @@ app.post("/webhook", async (req: Request, res: Response) => {
   }
 
   try {
-    const session = getSession(incoming.from);
-
-    if (!session) {
-      await sendWelcomeFlow(incoming.from, incoming.name);
-      res.sendStatus(200);
-      return;
-    }
-
-    if (session.step === ConversationStep.AWAITING_MENU_OPTION) {
-      const option = parseMenuOption(incoming.text);
-
-      if (!option) {
-        await sendWhatsAppMessage(incoming.from, WELCOME_MENU_TEXT);
-        res.sendStatus(200);
-        return;
-      }
-
-      await handleMenuOption(incoming.from, session.name, option);
-    }
+    await handleIncomingWhatsAppMessage(
+      incoming.from,
+      incoming.name,
+      incoming.text
+    );
   } catch (error) {
     console.error("Webhook: no se pudo responder al usuario", error);
   }

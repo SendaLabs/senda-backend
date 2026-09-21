@@ -7,7 +7,9 @@
     "dev": "nodemon --watch src --ext ts --exec ts-node src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "contract:build": "stellar contract build --manifest-path contracts/Cargo.toml",
+    "contract:deploy": "node scripts/deploy-contract.js"
   },
   "engines": {
     "node": ">=22.12.0"

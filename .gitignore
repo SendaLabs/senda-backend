@@ -4,3 +4,4 @@ dist/
 target/
 *.wasm
 .DS_Store
+data/
