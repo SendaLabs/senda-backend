@@ -1,6 +1,18 @@
 import express, { Request, Response } from "express";
 import dotenv from "dotenv";
-import { sendWhatsAppMessage } from "./services/whatsapp.service";
+import {
+  ConversationStep,
+  getSession,
+  parseMenuOption,
+  setSession,
+} from "./services/session.service";
+import {
+  sendWhatsAppMessage,
+  sendWhatsAppVideo,
+  WELCOME_MENU_TEXT,
+  WELCOME_VIDEO_CAPTION,
+  WELCOME_VIDEO_URL,
+} from "./services/whatsapp.service";
 
 dotenv.config();
 
@@ -41,6 +53,8 @@ interface WhatsAppWebhookPayload {
         }>;
         messages?: Array<{
           from?: string;
+          type?: string;
+          text?: { body?: string };
         }>;
       };
     }>;
@@ -50,9 +64,11 @@ interface WhatsAppWebhookPayload {
 function extractIncomingWhatsAppMessage(payload: WhatsAppWebhookPayload): {
   from: string;
   name: string;
+  text: string;
 } | null {
   const value = payload.entry?.[0]?.changes?.[0]?.value;
-  const from = value?.messages?.[0]?.from;
+  const message = value?.messages?.[0];
+  const from = message?.from;
   const name = value?.contacts?.[0]?.profile?.name;
 
   if (!from) {
@@ -62,7 +78,40 @@ function extractIncomingWhatsAppMessage(payload: WhatsAppWebhookPayload): {
   return {
     from,
     name: name?.trim() || "amigo",
+    text: message?.text?.body?.trim() ?? "",
   };
+}
+
+async function sendWelcomeFlow(to: string, name: string): Promise<void> {
+  try {
+    await sendWhatsAppVideo(to, WELCOME_VIDEO_URL, WELCOME_VIDEO_CAPTION);
+  } catch (error) {
+    console.error("Webhook: no se pudo enviar el video de bienvenida", error);
+  }
+
+  await sendWhatsAppMessage(to, WELCOME_MENU_TEXT);
+  setSession(to, { step: ConversationStep.AWAITING_MENU_OPTION, name });
+}
+
+async function handleMenuOption(
+  to: string,
+  name: string,
+  option: "1" | "2"
+): Promise<void> {
+  if (option === "1") {
+    setSession(to, { step: ConversationStep.RECEIVE_OR_WITHDRAW, name });
+    await sendWhatsAppMessage(
+      to,
+      "Perfecto. Vamos a ayudarte a recibir o retirar un pago del exterior."
+    );
+    return;
+  }
+
+  setSession(to, { step: ConversationStep.CHECK_TRANSFER, name });
+  await sendWhatsAppMessage(
+    to,
+    "Perfecto. Vamos a consultar el estado de tu transferencia."
+  );
 }
 
 app.post("/webhook", async (req: Request, res: Response) => {
@@ -75,10 +124,25 @@ app.post("/webhook", async (req: Request, res: Response) => {
   }
 
   try {
-    await sendWhatsAppMessage(
-      incoming.from,
-      `Hola ${incoming.name}, bienvenido a Senda`
-    );
+    const session = getSession(incoming.from);
+
+    if (!session) {
+      await sendWelcomeFlow(incoming.from, incoming.name);
+      res.sendStatus(200);
+      return;
+    }
+
+    if (session.step === ConversationStep.AWAITING_MENU_OPTION) {
+      const option = parseMenuOption(incoming.text);
+
+      if (!option) {
+        await sendWhatsAppMessage(incoming.from, WELCOME_MENU_TEXT);
+        res.sendStatus(200);
+        return;
+      }
+
+      await handleMenuOption(incoming.from, session.name, option);
+    }
   } catch (error) {
     console.error("Webhook: no se pudo responder al usuario", error);
   }
