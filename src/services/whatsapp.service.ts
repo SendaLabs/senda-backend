@@ -3,7 +3,7 @@ import axios, { isAxiosError } from "axios";
 const GRAPH_API_VERSION = process.env.WHATSAPP_API_VERSION ?? "v22.0";
 
 export const WELCOME_VIDEO_URL =
-  "https://github.com/SendaLabs/senda-backend/raw/refs/heads/main/src/public/0920.mp4";
+  "https://files.catbox.moe/75h8v0.mp4";
 
 export const WELCOME_VIDEO_CAPTION =
   "¡Hola! 👋 Bienvenido a Senda. Senda puede ayudarte a enviar, recibir y gestionar fácilmente.";

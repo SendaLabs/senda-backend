@@ -6,7 +6,7 @@ const axios = require("axios");
 const TO = "50664549767";
 
 const VIDEO_URL =
-  "https://github.com/SendaLabs/senda-backend/raw/refs/heads/main/src/public/0920.mp4";
+  "https://files.catbox.moe/75h8v0.mp4";
 
 const CAPTION =
   "¡Hola! 👋 Bienvenido a Senda. Senda puede ayudarte a enviar, recibir y gestionar fácilmente.";
