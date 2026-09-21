@@ -67,10 +67,7 @@ async function postWhatsAppMessage(
     return data;
   } catch (error) {
     if (isAxiosError(error)) {
-      console.error(
-        `WhatsApp: error al enviar ${payload.type}`,
-        error.response?.data ?? error.message
-      );
+      console.error(JSON.stringify(error.response?.data, null, 2));
     } else {
       console.error(`WhatsApp: error inesperado al enviar ${payload.type}`, error);
     }
