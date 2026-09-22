@@ -9,7 +9,7 @@ export const WELCOME_VIDEO_CAPTION =
   "¡Hola! 👋 Bienvenido a Senda. Senda puede ayudarte a enviar, recibir y gestionar fácilmente.";
 
 export const WELCOME_MENU_TEXT =
-  "¿Qué te gustaría hacer hoy?\n\n1️⃣ Recibir / Retirar USDC\n2️⃣ Consultar saldo USDC\n\nResponde con el número de tu opción.";
+  "¿Qué te gustaría hacer hoy?\n\nPodés escribirlo como te salga, por ejemplo:\n• «saldo» o «cuánto tengo»\n• «mandar 10» o «retirar 5»\n\nTambién sirve:\n1️⃣ Recibir / Retirar USDC\n2️⃣ Consultar saldo USDC";
 
 export interface WhatsAppMessageResponse {
   messaging_product: "whatsapp";

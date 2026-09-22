@@ -1,10 +1,9 @@
 import {
   ConversationStep,
   getSession,
-  isMenuRequest,
-  parseMenuOption,
   setSession,
 } from "./session.service";
+import { classifyIntent } from "./intent.service";
 import { parseUsdAmount } from "./remittance.service";
 import {
   creditUserOnTestnet,
@@ -21,7 +20,16 @@ import {
 } from "./whatsapp.service";
 
 const ASK_USD_AMOUNT =
-  "Ingresá el monto en USDC que querés recibir.\nEjemplo: 10";
+  "Decime el monto en USDC. Por ejemplo: 10, o «mandar 10».";
+
+function guideUser(name: string): string {
+  return [
+    `${name}, no te seguí del todo.`,
+    "",
+    "Puedo consultar tu saldo o enviarte USDC en Testnet.",
+    "Probá con algo como «saldo», «cuánto tengo» o «mandar 10».",
+  ].join("\n");
+}
 
 async function sendMenu(to: string, name: string): Promise<void> {
   await sendWhatsAppMessage(to, WELCOME_MENU_TEXT);
@@ -38,34 +46,19 @@ export async function sendWelcomeFlow(to: string, name: string): Promise<void> {
   await sendMenu(to, name);
 }
 
-async function handleMenuOption(
-  to: string,
-  name: string,
-  option: "1" | "2"
-): Promise<void> {
-  if (option === "1") {
-    setSession(to, { step: ConversationStep.AWAITING_USD_AMOUNT, name });
-    await sendWhatsAppMessage(
-      to,
-      `Vamos a enviarte USDC en Stellar Testnet a la cuenta ligada a este WhatsApp.\n\n${ASK_USD_AMOUNT}`
-    );
-    return;
-  }
-
-  await handleBalanceQuery(to, name);
+async function startSendFlow(to: string, name: string): Promise<void> {
+  setSession(to, { step: ConversationStep.AWAITING_USD_AMOUNT, name });
+  await sendWhatsAppMessage(
+    to,
+    `Dale, armamos el envío de USDC a la cuenta ligada a este WhatsApp.\n\n${ASK_USD_AMOUNT}`
+  );
 }
 
-async function handleUsdAmount(
+async function executeUsdcTransfer(
   to: string,
   name: string,
-  text: string
+  usdAmount: number
 ): Promise<void> {
-  const usdAmount = parseUsdAmount(text);
-  if (usdAmount === null) {
-    await sendWhatsAppMessage(to, `No pude leer ese monto. ${ASK_USD_AMOUNT}`);
-    return;
-  }
-
   await sendWhatsAppMessage(
     to,
     "Enviando USDC por el Stellar Asset Contract..."
@@ -75,27 +68,46 @@ async function handleUsdAmount(
     const result = await creditUserOnTestnet(to, usdAmount);
     setSession(to, { step: ConversationStep.AWAITING_MENU_OPTION, name });
 
-    const lines = [
-      "Transferencia USDC confirmada en Stellar Testnet.",
-      "",
-      `Monto enviado: ${result.amountUsdc} USDC`,
-      `Tu cuenta: ${result.publicKey}`,
-      `Saldo USDC: ${result.usdcBalance} USDC`,
-      `Reserva XLM: ${result.nativeBalanceXlm} XLM`,
-      `Transacción: ${explorerTxUrl(result.usdcTxHash)}`,
-    ];
-
-    lines.push("", WELCOME_MENU_TEXT);
-    await sendWhatsAppMessage(to, lines.join("\n"));
+    await sendWhatsAppMessage(
+      to,
+      [
+        "Listo, la transferencia USDC se confirmó en Stellar Testnet.",
+        "",
+        `Monto enviado: ${result.amountUsdc} USDC`,
+        `Tu cuenta: ${result.publicKey}`,
+        `Saldo USDC: ${result.usdcBalance} USDC`,
+        `Reserva XLM: ${result.nativeBalanceXlm} XLM`,
+        `Transacción: ${explorerTxUrl(result.usdcTxHash)}`,
+        "",
+        "Si querés, pedime el saldo o mandá otro monto.",
+      ].join("\n")
+    );
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "La red rechazó la transacción";
     console.error("Error al acreditar en Testnet:", error);
     await sendWhatsAppMessage(
       to,
-      `No se pudo completar el movimiento en Stellar Testnet.\n${message}`
+      `No pude completar el envío en Stellar Testnet.\n${message}\n\nPodés reintentar con «mandar 10» o consultar con «saldo».`
     );
   }
+}
+
+async function handleUsdAmount(
+  to: string,
+  name: string,
+  text: string
+): Promise<void> {
+  const usdAmount = parseUsdAmount(text);
+  if (usdAmount === null) {
+    await sendWhatsAppMessage(
+      to,
+      `No encontré un monto en lo que escribiste. ${ASK_USD_AMOUNT}`
+    );
+    return;
+  }
+
+  await executeUsdcTransfer(to, name, usdAmount);
 }
 
 async function handleBalanceQuery(to: string, name: string): Promise<void> {
@@ -107,22 +119,19 @@ async function handleBalanceQuery(to: string, name: string): Promise<void> {
       await sendWhatsAppMessage(
         to,
         [
-          "Este WhatsApp todavía no tiene una cuenta Stellar asociada.",
-          "Elegí la opción 1 para crear la cuenta en Testnet y recibir USDC.",
-          "",
-          WELCOME_MENU_TEXT,
+          "Todavía no hay una cuenta Stellar asociada a este WhatsApp.",
+          "Escribí «mandar 10» (o el monto que quieras) para crearla y recibir USDC.",
         ].join("\n")
       );
       return;
     }
 
     const lines = [
-      "Saldo on-chain (Stellar Testnet).",
+      "Este es tu saldo on-chain en Stellar Testnet.",
       "",
-      `Red: ${state.network}`,
-      `Cuenta: ${state.publicKey}`,
       `USDC: ${state.usdcBalance ?? "no disponible"}`,
       `XLM (fees): ${state.nativeBalanceXlm}`,
+      `Cuenta: ${state.publicKey}`,
       `Explorador: ${explorerAccountUrl(state.publicKey)}`,
     ];
 
@@ -130,11 +139,7 @@ async function handleBalanceQuery(to: string, name: string): Promise<void> {
       lines.push(`Ledger: ${state.latestLedger}`);
     }
 
-    if (state.usdcSacId) {
-      lines.push(`SAC USDC: ${state.usdcSacId}`);
-    }
-
-    lines.push("", WELCOME_MENU_TEXT);
+    lines.push("", "Podés seguir con «mandar 10» o pedir el saldo de nuevo.");
     await sendWhatsAppMessage(to, lines.join("\n"));
   } catch (error) {
     const message =
@@ -142,8 +147,42 @@ async function handleBalanceQuery(to: string, name: string): Promise<void> {
     console.error("Error al consultar Testnet:", error);
     await sendWhatsAppMessage(
       to,
-      `No se pudo leer la cuenta en Stellar Testnet.\n${message}`
+      `No pude leer la cuenta en Stellar Testnet.\n${message}`
     );
+  }
+}
+
+async function dispatchIntent(
+  to: string,
+  name: string,
+  text: string
+): Promise<void> {
+  const intent = classifyIntent(text);
+
+  switch (intent.type) {
+    case "balance":
+      await handleBalanceQuery(to, name);
+      return;
+    case "send":
+      if (intent.amount !== null) {
+        await executeUsdcTransfer(to, name, intent.amount);
+        return;
+      }
+      await startSendFlow(to, name);
+      return;
+    case "option":
+      if (intent.option === "2") {
+        await handleBalanceQuery(to, name);
+        return;
+      }
+      await startSendFlow(to, name);
+      return;
+    case "menu":
+      await sendMenu(to, name);
+      return;
+    case "unknown":
+      await sendWhatsAppMessage(to, guideUser(name));
+      return;
   }
 }
 
@@ -153,32 +192,36 @@ export async function handleIncomingWhatsAppMessage(
   text: string
 ): Promise<void> {
   const session = getSession(from);
+  const intent = classifyIntent(text);
 
   if (!session) {
-    await sendWelcomeFlow(from, name);
-    return;
-  }
-
-  if (
-    isMenuRequest(text) &&
-    session.step !== ConversationStep.AWAITING_MENU_OPTION
-  ) {
-    await sendMenu(from, session.name);
-    return;
-  }
-
-  switch (session.step) {
-    case ConversationStep.AWAITING_MENU_OPTION: {
-      const option = parseMenuOption(text);
-      if (!option) {
-        await sendWhatsAppMessage(from, WELCOME_MENU_TEXT);
-        return;
-      }
-      await handleMenuOption(from, session.name, option);
+    if (intent.type === "unknown" || intent.type === "menu") {
+      await sendWelcomeFlow(from, name);
       return;
     }
-    case ConversationStep.AWAITING_USD_AMOUNT:
-      await handleUsdAmount(from, session.name, text);
-      return;
+
+    setSession(from, {
+      step: ConversationStep.AWAITING_MENU_OPTION,
+      name,
+    });
+    await dispatchIntent(from, name, text);
+    return;
   }
+
+  if (session.step === ConversationStep.AWAITING_USD_AMOUNT) {
+    if (intent.type === "balance" || intent.type === "menu") {
+      await dispatchIntent(from, session.name, text);
+      return;
+    }
+
+    if (intent.type === "send" && intent.amount !== null) {
+      await executeUsdcTransfer(from, session.name, intent.amount);
+      return;
+    }
+
+    await handleUsdAmount(from, session.name, text);
+    return;
+  }
+
+  await dispatchIntent(from, session.name, text);
 }
