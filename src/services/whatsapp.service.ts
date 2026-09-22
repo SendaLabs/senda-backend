@@ -30,6 +30,76 @@ type WhatsAppOutgoingPayload = {
   video?: { link: string; caption?: string };
 };
 
+export class WhatsAppSendError extends Error {
+  readonly status?: number;
+  readonly code?: number;
+  readonly to: string;
+  readonly kind: "text" | "video";
+
+  constructor(params: {
+    to: string;
+    kind: "text" | "video";
+    status?: number;
+    code?: number;
+    message: string;
+  }) {
+    super(params.message);
+    this.name = "WhatsAppSendError";
+    this.to = params.to;
+    this.kind = params.kind;
+    this.status = params.status;
+    this.code = params.code;
+  }
+}
+
+function summarizeMetaError(error: unknown): {
+  status?: number;
+  code?: number;
+  message: string;
+} {
+  if (isAxiosError(error)) {
+    const data = error.response?.data as
+      | { error?: { code?: number; error_subcode?: number; message?: string } }
+      | undefined;
+    const meta = data?.error;
+    return {
+      status: error.response?.status,
+      code: meta?.code,
+      message: meta?.message ?? error.message,
+    };
+  }
+
+  if (error instanceof Error) {
+    return { message: error.message };
+  }
+
+  return { message: "Error desconocido al hablar con WhatsApp" };
+}
+
+export function logSafeError(scope: string, error: unknown): void {
+  if (error instanceof WhatsAppSendError) {
+    console.error(
+      `${scope}: WhatsApp ${error.kind} a ${error.to} status=${error.status ?? "?"} code=${error.code ?? "?"} ${error.message}`
+    );
+    return;
+  }
+
+  if (isAxiosError(error)) {
+    const summary = summarizeMetaError(error);
+    console.error(
+      `${scope}: HTTP ${summary.status ?? "?"} code=${summary.code ?? "?"} ${summary.message}`
+    );
+    return;
+  }
+
+  if (error instanceof Error) {
+    console.error(`${scope}: ${error.name}: ${error.message}`);
+    return;
+  }
+
+  console.error(`${scope}: error desconocido`);
+}
+
 function getWhatsAppConfig(): { token: string; phoneNumberId: string } {
   const token = process.env.WHATSAPP_TOKEN;
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
@@ -66,13 +136,16 @@ async function postWhatsAppMessage(
 
     return data;
   } catch (error) {
-    if (isAxiosError(error)) {
-      console.error(JSON.stringify(error.response?.data, null, 2));
-    } else {
-      console.error(`WhatsApp: error inesperado al enviar ${payload.type}`, error);
-    }
-
-    throw error;
+    const summary = summarizeMetaError(error);
+    const wrapped = new WhatsAppSendError({
+      to: payload.to,
+      kind: payload.type,
+      status: summary.status,
+      code: summary.code,
+      message: summary.message,
+    });
+    logSafeError("WhatsApp", wrapped);
+    throw wrapped;
   }
 }
 

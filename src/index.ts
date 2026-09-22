@@ -2,7 +2,11 @@ import express, { Request, Response } from "express";
 import dotenv from "dotenv";
 import { handleIncomingWhatsAppMessage } from "./services/conversation.service";
 import { humanizeLedgerError } from "./services/ledger-error.service";
-import { sendWhatsAppMessage } from "./services/whatsapp.service";
+import {
+  logSafeError,
+  sendWhatsAppMessage,
+  WhatsAppSendError,
+} from "./services/whatsapp.service";
 
 dotenv.config();
 
@@ -88,14 +92,16 @@ app.post("/webhook", async (req: Request, res: Response) => {
       incoming.text
     );
   } catch (error) {
-    console.error("Webhook: no se pudo responder al usuario", error);
-    try {
-      await sendWhatsAppMessage(
-        incoming.from,
-        humanizeLedgerError(error)
-      );
-    } catch (replyError) {
-      console.error("Webhook: tampoco se pudo avisar al usuario", replyError);
+    logSafeError("Webhook: no se pudo responder al usuario", error);
+    if (!(error instanceof WhatsAppSendError)) {
+      try {
+        await sendWhatsAppMessage(
+          incoming.from,
+          humanizeLedgerError(error)
+        );
+      } catch (replyError) {
+        logSafeError("Webhook: tampoco se pudo avisar al usuario", replyError);
+      }
     }
   }
 

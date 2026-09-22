@@ -20,6 +20,7 @@ import {
   type OfframpPartnerId,
 } from "./offramp.service";
 import {
+  logSafeError,
   sendWhatsAppMessage,
   sendWhatsAppVideo,
   WELCOME_MENU_TEXT,
@@ -69,7 +70,7 @@ export async function sendWelcomeFlow(to: string, name: string): Promise<void> {
   try {
     await sendWhatsAppVideo(to, WELCOME_VIDEO_URL, WELCOME_VIDEO_CAPTION);
   } catch (error) {
-    console.error("Webhook: no se pudo enviar el video de bienvenida", error);
+    logSafeError("Webhook: no se pudo enviar el video de bienvenida", error);
   }
 
   await sendMenu(to, name);
@@ -153,7 +154,7 @@ async function executeUsdcTransfer(
       ].join("\n")
     );
   } catch (error) {
-    console.error("Error al acreditar:", error);
+    logSafeError("Error al acreditar", error);
     setSession(to, { step: ConversationStep.AWAITING_USD_AMOUNT, name });
     await sendWhatsAppMessage(to, humanizeLedgerError(error));
   }
@@ -202,7 +203,7 @@ async function executeCashWithdrawal(
       ].join("\n")
     );
   } catch (error) {
-    console.error("Error en retiro en efectivo:", error);
+    logSafeError("Error en retiro en efectivo", error);
     setSession(to, idleSession(name));
 
     if (error instanceof OfframpInsufficientFundsError) {
@@ -249,7 +250,7 @@ async function handleBalanceQuery(to: string, name: string): Promise<void> {
       ].join("\n")
     );
   } catch (error) {
-    console.error("Error al consultar saldo:", error);
+    logSafeError("Error al consultar saldo", error);
     await sendWhatsAppMessage(to, humanizeLedgerError(error));
   }
 }
