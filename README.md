@@ -2,7 +2,7 @@
 
 Backend de **Senda**: un bot de WhatsApp que acredita y consulta fondos en **Stellar Testnet**, con un contrato **Soroban** para registrar saldos.
 
-Cada número de WhatsApp se asocia a una cuenta Stellar. El usuario no carga hashes ni IDs: el backend identifica la sesión y opera en la red.
+Cada número de WhatsApp se asocia a una cuenta Stellar por **custodia invisible (SEP-30)**: la cuenta se deriva o se recupera desde el teléfono, sin frases semilla. El usuario no ve claves ni hashes.
 
 ## Stack
 
@@ -14,11 +14,10 @@ Cada número de WhatsApp se asocia a una cuenta Stellar. El usuario no carga has
 ## Cómo funciona el bot
 
 1. El primer mensaje dispara un video de bienvenida y el menú.
-2. **Opción 1 — Recibir / Retirar:** pide un monto, crea (si hace falta) una cuenta Testnet ligada a ese WhatsApp, envía XLM desde la cuenta operativa y, si hay contrato desplegado, invoca `credit`.
-3. **Opción 2 — Consultar saldo:** lee Horizon/RPC con la cuenta asociada a ese número.
-4. `menu`, `0` o `hola` vuelven al menú (sin reenviar el video).
-
-En Testnet, el monto ingresado se acredita como **XLM** (1 unidad ingresada = 1 XLM). El contrato guarda el monto en centavos.
+2. **Enviar / recibir USDC:** el bot acredita USDC en la cuenta derivada de ese WhatsApp (SAC + Horizon).
+3. **Saldo:** consulta el SAC asociado a esa identidad.
+4. **Retiro en efectivo:** simula una orden con MoneyGram, Western Union o un comercio Senda y bloquea el USDC transfiriéndolo al vault de offramp.
+5. `menu` o `hola` vuelven al menú (sin reenviar el video).
 
 ## Estructura
 
@@ -28,9 +27,17 @@ src/
   services/
     conversation.service.ts     # Máquina de estados del bot
     session.service.ts          # Sesión en memoria por teléfono
-    whatsapp.service.ts         # Texto y video nativo (Cloud API)
+    intent.service.ts           # NLP/regex de envío, saldo y retiro
+    identity.service.ts         # Identidad SEP-30 (WhatsApp → phone_number)
+    derivation.service.ts       # HKDF + passkey lógica por teléfono
+    recovery.store.ts           # Registro y recuperación de cuentas
+    custody.service.ts          # Custodia invisible / resolve + recover
     stellar.service.ts          # Pagos, contrato y consultas Testnet
-    wallet.store.ts             # Persistencia teléfono → keypair
+    usdc.service.ts             # SAC USDC (acreditar y bloquear)
+    offramp.service.ts          # Retiro en efectivo + lock SAC
+    offramp.partners.ts         # MoneyGram / comercios (simulado)
+    offramp.store.ts            # Órdenes de retiro
+    wallet.store.ts             # Persistencia de secretos (gitignored)
     remittance.service.ts       # Parseo del monto
   public/                       # Assets locales (video)
 contracts/                      # SendaContract (Soroban)
@@ -73,6 +80,8 @@ Para que Meta llegue al webhook en local hace falta un túnel (ngrok, Cloudflare
 | `STELLAR_SECRET_KEY` | Seed de la cuenta operativa (nunca commitear) |
 | `STELLAR_PUBLIC_KEY` | Clave pública operativa (opcional) |
 | `STELLAR_CONTRACT_ID` | ID `C…` del contrato en Testnet |
+| `CUSTODY_MASTER_SECRET` | Secreto HKDF para derivar/recuperar cuentas (SEP-30) |
+| `STELLAR_OFFRAMP_PUBLIC_KEY` | Vault que recibe el USDC al retirar efectivo |
 
 Copiá valores reales solo en `.env`. Ese archivo está en `.gitignore`.
 
@@ -113,7 +122,7 @@ Sin `STELLAR_CONTRACT_ID` el bot igual envía el pago XLM en Horizon; el registr
 4. Cargá las mismas variables que en `.env` (nunca el archivo `.env`).
 5. En Meta, el webhook debe ser `https://<tu-servicio>/webhook`.
 
-Las wallets de usuario se guardan en `data/wallets.json` (también gitignored). En un disco efímero de Render se recrean tras un redeploy; Friendbot vuelve a fondear cuentas nuevas en Testnet.
+Las identidades SEP-30, wallets y órdenes de retiro viven en `data/` (`identities.json`, `wallets.json`, `offramp-orders.json`, gitignored). En un disco efímero de Render se recrean; con `CUSTODY_MASTER_SECRET` fijo la misma cuenta se vuelve a derivar desde el WhatsApp.
 
 ## Seguridad
 

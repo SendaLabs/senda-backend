@@ -1,6 +1,10 @@
+import type { OfframpPartnerId } from "./offramp.store";
+
 export const ConversationStep = {
   AWAITING_MENU_OPTION: "AWAITING_MENU_OPTION",
   AWAITING_USD_AMOUNT: "AWAITING_USD_AMOUNT",
+  AWAITING_WITHDRAW_AMOUNT: "AWAITING_WITHDRAW_AMOUNT",
+  AWAITING_WITHDRAW_PARTNER: "AWAITING_WITHDRAW_PARTNER",
 } as const;
 
 export type ConversationStep =
@@ -9,6 +13,8 @@ export type ConversationStep =
 export interface ConversationSession {
   step: ConversationStep;
   name: string;
+  pendingAmount?: number;
+  pendingPartner?: OfframpPartnerId;
 }
 
 const sessions = new Map<string, ConversationSession>();

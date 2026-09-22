@@ -6,10 +6,10 @@ export const WELCOME_VIDEO_URL =
   "https://files.catbox.moe/75h8v0.mp4";
 
 export const WELCOME_VIDEO_CAPTION =
-  "¡Hola! 👋 Bienvenido a Senda. Senda puede ayudarte a enviar, recibir y gestionar fácilmente.";
+  "¡Hola! 👋 Bienvenido a Senda. Te ayudo a enviar y recibir USDC al toque, sin vueltas.";
 
 export const WELCOME_MENU_TEXT =
-  "¿Qué te gustaría hacer hoy?\n\nPodés escribirlo como te salga, por ejemplo:\n• «saldo» o «cuánto tengo»\n• «mandar 10» o «retirar 5»\n\nTambién sirve:\n1️⃣ Recibir / Retirar USDC\n2️⃣ Consultar saldo USDC";
+  "¿En qué te ayudo?\n\nEscribime como hables, no hace falta elegir 1 o 2. Por ejemplo:\n• «cuánto tengo» o «ver mis USDC»\n• «quiero mandar 20 dólares a mi mamá»\n• «retirar 15 en MoneyGram» o «sacar efectivo»";
 
 export interface WhatsAppMessageResponse {
   messaging_product: "whatsapp";

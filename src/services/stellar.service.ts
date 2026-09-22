@@ -12,7 +12,7 @@ import {
   nativeToScVal,
   rpc,
 } from "@stellar/stellar-sdk";
-import { getWalletByPhone, saveWallet } from "./wallet.store";
+import { resolveCustodialAccount } from "./custody.service";
 import {
   ensureUsdcTrustline,
   fromUsdcStroops,
@@ -140,8 +140,18 @@ async function ensureFunded(publicKey: string): Promise<void> {
     await loadAccount(publicKey);
     return;
   } catch {
-    await fundAccount(publicKey);
+    try {
+      await fundAccount(publicKey);
+    } catch (error) {
+      console.error("Friendbot:", error);
+      await sleepQuiet(800);
+      await loadAccount(publicKey);
+    }
   }
+}
+
+function sleepQuiet(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function createAndFundAccount(): Promise<CreatedAccount> {
@@ -169,15 +179,9 @@ function formatXlmAmount(amount: number): string {
 export async function getOrCreateUserAccount(
   phone: string
 ): Promise<CreatedAccount> {
-  const existing = getWalletByPhone(phone);
-  if (existing) {
-    await ensureFunded(existing.publicKey);
-    return existing;
-  }
-
-  const wallet = saveWallet(phone, createKeypair());
-  await ensureFunded(wallet.publicKey);
-  return wallet;
+  const { account } = resolveCustodialAccount(phone);
+  await ensureFunded(account.publicKey);
+  return account;
 }
 
 async function submitHorizonPayment(
@@ -298,10 +302,21 @@ export async function creditUserOnTestnet(
   usdAmount: number
 ): Promise<CreditOnChainResult> {
   const user = await getOrCreateUserAccount(phone);
+  try {
+    await ensureFunded(getOpsKeypair().publicKey());
+  } catch (error) {
+    console.error("Cuenta operativa:", error);
+  }
   await ensureUsdcTrustline(user);
+  await sleepQuiet(400);
 
   const transfer = await transferUsdc(user.publicKey, usdAmount);
-  const nativeBalanceXlm = await getNativeBalance(user.publicKey);
+  let nativeBalanceXlm = "0";
+  try {
+    nativeBalanceXlm = await getNativeBalance(user.publicKey);
+  } catch {
+    nativeBalanceXlm = "0";
+  }
 
   return {
     publicKey: user.publicKey,
@@ -314,35 +329,31 @@ export async function creditUserOnTestnet(
 
 export async function getUserOnChainState(
   phone: string
-): Promise<UserOnChainState | null> {
-  const wallet = getWalletByPhone(phone);
-  if (!wallet) {
-    return null;
+): Promise<UserOnChainState> {
+  const wallet = await getOrCreateUserAccount(phone);
+  try {
+    await ensureUsdcTrustline(wallet);
+  } catch (error) {
+    console.error("Trustline al consultar saldo:", error);
   }
 
   const config = getNetworkConfig();
-  const state: UserOnChainState = {
+  let nativeBalanceXlm = "0";
+  try {
+    nativeBalanceXlm = await getNativeBalance(wallet.publicKey);
+  } catch {
+    nativeBalanceXlm = "0";
+  }
+
+  const usdc = await getUsdcBalance(wallet.publicKey);
+
+  return {
     network: config.name,
     publicKey: wallet.publicKey,
-    nativeBalanceXlm: await getNativeBalance(wallet.publicKey),
+    nativeBalanceXlm,
     usdcSacId: getUsdcSacId(),
+    usdcBalance: fromUsdcStroops(usdc),
   };
-
-  try {
-    const latest = await getRpcServer().getLatestLedger();
-    state.latestLedger = latest.sequence;
-  } catch {
-    // Horizon balance already loaded; ledger is optional context.
-  }
-
-  try {
-    const usdc = await getUsdcBalance(wallet.publicKey);
-    state.usdcBalance = fromUsdcStroops(usdc);
-  } catch (error) {
-    console.error("No se pudo leer balance USDC del SAC:", error);
-  }
-
-  return state;
 }
 
 export function explorerTxUrl(hash: string): string {

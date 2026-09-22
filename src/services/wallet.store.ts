@@ -1,10 +1,10 @@
 import fs from "fs";
 import path from "path";
-import type { CreatedAccount } from "./stellar.service";
+import type { CustodialAccount } from "./account.types";
 
 const WALLETS_PATH = path.join(process.cwd(), "data", "wallets.json");
 
-type WalletStore = Record<string, CreatedAccount>;
+type WalletStore = Record<string, CustodialAccount>;
 
 function readStore(): WalletStore {
   try {
@@ -23,11 +23,14 @@ function writeStore(store: WalletStore): void {
   });
 }
 
-export function getWalletByPhone(phone: string): CreatedAccount | undefined {
+export function getWalletByPhone(phone: string): CustodialAccount | undefined {
   return readStore()[phone];
 }
 
-export function saveWallet(phone: string, wallet: CreatedAccount): CreatedAccount {
+export function saveWallet(
+  phone: string,
+  wallet: CustodialAccount
+): CustodialAccount {
   const store = readStore();
   store[phone] = wallet;
   writeStore(store);
