@@ -17,7 +17,8 @@ Cada número de WhatsApp se asocia a una cuenta Stellar por **custodia invisible
 2. **Enviar / recibir USDC:** el bot acredita USDC en la cuenta derivada de ese WhatsApp (SAC + Horizon).
 3. **Saldo:** consulta el SAC asociado a esa identidad.
 4. **Retiro en efectivo:** simula una orden con MoneyGram, Western Union o un comercio Senda y bloquea el USDC transfiriéndolo al vault de offramp.
-5. `menu` o `hola` vuelven al menú (sin reenviar el video).
+5. **Notas de voz:** se descargan de Meta, se transcriben con Whisper y se tratan como texto.
+6. `menu` o `hola` vuelven al menú (sin reenviar el video).
 
 ## Estructura
 
@@ -39,6 +40,8 @@ src/
     offramp.store.ts            # Órdenes de retiro
     wallet.store.ts             # Persistencia de secretos (gitignored)
     remittance.service.ts       # Parseo del monto
+    whatsapp.media.service.ts   # Descarga de audio de Meta
+    transcription.service.ts    # Whisper: nota de voz → texto
   public/                       # Assets locales (video)
 contracts/                      # SendaContract (Soroban)
 scripts/deploy-contract.js      # Build + deploy a Testnet
@@ -82,6 +85,8 @@ Para que Meta llegue al webhook en local hace falta un túnel (ngrok, Cloudflare
 | `STELLAR_CONTRACT_ID` | ID `C…` del contrato en Testnet |
 | `CUSTODY_MASTER_SECRET` | Secreto HKDF para derivar/recuperar cuentas (SEP-30) |
 | `STELLAR_OFFRAMP_PUBLIC_KEY` | Vault que recibe el USDC al retirar efectivo |
+| `OPENAI_API_KEY` | Clave para transcribir notas de voz con Whisper |
+| `OPENAI_TRANSCRIPTION_MODEL` | Modelo de transcripción (default `whisper-1`) |
 
 Copiá valores reales solo en `.env`. Ese archivo está en `.gitignore`.
 

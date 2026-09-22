@@ -2,6 +2,7 @@ import express, { Request, Response } from "express";
 import dotenv from "dotenv";
 import { handleIncomingWhatsAppMessage } from "./services/conversation.service";
 import { humanizeLedgerError } from "./services/ledger-error.service";
+import { transcribeWhatsAppAudio } from "./services/transcription.service";
 import {
   logSafeError,
   sendWhatsAppMessage,
@@ -49,63 +50,135 @@ interface WhatsAppWebhookPayload {
           from?: string;
           type?: string;
           text?: { body?: string };
+          audio?: {
+            id?: string;
+            mime_type?: string;
+            voice?: boolean;
+          };
         }>;
       };
     }>;
   }>;
 }
 
-function extractIncomingWhatsAppMessage(payload: WhatsAppWebhookPayload): {
-  from: string;
-  name: string;
-  text: string;
-} | null {
+type IncomingWhatsAppMessage =
+  | { kind: "text"; from: string; name: string; text: string }
+  | {
+      kind: "audio";
+      from: string;
+      name: string;
+      mediaId: string;
+      mimeType?: string;
+    }
+  | { kind: "unsupported"; from: string; name: string };
+
+function extractIncomingWhatsAppMessage(
+  payload: WhatsAppWebhookPayload
+): IncomingWhatsAppMessage | null {
   const value = payload.entry?.[0]?.changes?.[0]?.value;
   const message = value?.messages?.[0];
   const from = message?.from;
-  const name = value?.contacts?.[0]?.profile?.name;
+  const name = value?.contacts?.[0]?.profile?.name?.trim() || "amigo";
 
-  if (!from) {
+  if (!from || !message) {
     return null;
   }
 
-  return {
-    from,
-    name: name?.trim() || "amigo",
-    text: message?.text?.body?.trim() ?? "",
-  };
+  if (message.type === "audio" || message.audio?.id) {
+    const mediaId = message.audio?.id;
+    if (!mediaId) {
+      return { kind: "unsupported", from, name };
+    }
+    return {
+      kind: "audio",
+      from,
+      name,
+      mediaId,
+      mimeType: message.audio?.mime_type,
+    };
+  }
+
+  if (message.type === "text" || message.text?.body) {
+    return {
+      kind: "text",
+      from,
+      name,
+      text: message.text?.body?.trim() ?? "",
+    };
+  }
+
+  return { kind: "unsupported", from, name };
 }
 
-app.post("/webhook", async (req: Request, res: Response) => {
-  console.log("Webhook POST recibido:", JSON.stringify(req.body));
+async function resolveIncomingText(
+  incoming: IncomingWhatsAppMessage
+): Promise<string | null> {
+  if (incoming.kind === "text") {
+    return incoming.text;
+  }
 
-  const incoming = extractIncomingWhatsAppMessage(req.body);
+  if (incoming.kind === "unsupported") {
+    await sendWhatsAppMessage(
+      incoming.from,
+      "Por ahora te leo texto o una nota de voz. Mandame eso y te ayudo."
+    );
+    return null;
+  }
+
+  const transcript = await transcribeWhatsAppAudio(
+    incoming.mediaId,
+    incoming.mimeType
+  );
+
+  if (!transcript) {
+    await sendWhatsAppMessage(
+      incoming.from,
+      "No pude entender esa nota. ¿La repetís o me lo escribís?"
+    );
+    return null;
+  }
+
+  console.log(`Voz transcrita de ${incoming.from}: ${transcript}`);
+  return transcript;
+}
+
+async function processIncomingWebhook(payload: WhatsAppWebhookPayload): Promise<void> {
+  console.log("Webhook POST recibido:", JSON.stringify(payload));
+
+  const incoming = extractIncomingWhatsAppMessage(payload);
   if (!incoming) {
-    res.sendStatus(200);
     return;
   }
 
   try {
-    await handleIncomingWhatsAppMessage(
-      incoming.from,
-      incoming.name,
-      incoming.text
-    );
+    const text = await resolveIncomingText(incoming);
+    if (text === null) {
+      return;
+    }
+
+    await handleIncomingWhatsAppMessage(incoming.from, incoming.name, text);
   } catch (error) {
     logSafeError("Webhook: no se pudo responder al usuario", error);
-    if (!(error instanceof WhatsAppSendError)) {
-      try {
-        await sendWhatsAppMessage(
-          incoming.from,
-          humanizeLedgerError(error)
-        );
-      } catch (replyError) {
-        logSafeError("Webhook: tampoco se pudo avisar al usuario", replyError);
-      }
+    if (error instanceof WhatsAppSendError) {
+      return;
+    }
+
+    try {
+      await sendWhatsAppMessage(
+        incoming.from,
+        incoming.kind === "audio"
+          ? "No pude escuchar esa nota ahora. ¿Me lo escribís?"
+          : humanizeLedgerError(error)
+      );
+    } catch (replyError) {
+      logSafeError("Webhook: tampoco se pudo avisar al usuario", replyError);
     }
   }
+}
 
+app.post("/webhook", (req: Request, res: Response) => {
   res.sendStatus(200);
+  void processIncomingWebhook(req.body);
 });
 
 app.listen(port, () => {

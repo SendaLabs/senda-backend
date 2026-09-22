@@ -9,7 +9,7 @@ export const WELCOME_VIDEO_CAPTION =
   "¡Hola! 👋 Bienvenido a Senda. Te ayudo a enviar y recibir USDC al toque, sin vueltas.";
 
 export const WELCOME_MENU_TEXT =
-  "¿En qué te ayudo?\n\nEscribime como hables, no hace falta elegir 1 o 2. Por ejemplo:\n• «cuánto tengo» o «ver mis USDC»\n• «quiero mandar 20 dólares a mi mamá»\n• «retirar 15 en MoneyGram» o «sacar efectivo»";
+  "¿En qué te ayudo?\n\nEscribime o mandame una nota de voz. Por ejemplo:\n• «cuánto tengo» o «ver mis USDC»\n• «quiero mandar 20 dólares a mi mamá»\n• «retirar 15 en MoneyGram» o «sacar efectivo»";
 
 export interface WhatsAppMessageResponse {
   messaging_product: "whatsapp";
@@ -98,6 +98,10 @@ export function logSafeError(scope: string, error: unknown): void {
   }
 
   console.error(`${scope}: error desconocido`);
+}
+
+export function getWhatsAppAccessToken(): string {
+  return getWhatsAppConfig().token;
 }
 
 function getWhatsAppConfig(): { token: string; phoneNumberId: string } {
