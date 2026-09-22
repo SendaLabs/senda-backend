@@ -10,7 +10,6 @@ import {
   creditUserOnTestnet,
   explorerAccountUrl,
   explorerTxUrl,
-  formatCentsAsUsd,
   getUserOnChainState,
 } from "./stellar.service";
 import {
@@ -22,7 +21,7 @@ import {
 } from "./whatsapp.service";
 
 const ASK_USD_AMOUNT =
-  "Ingresá el monto que querés acreditar en Stellar Testnet.\nEjemplo: 10";
+  "Ingresá el monto en USDC que querés recibir.\nEjemplo: 10";
 
 async function sendMenu(to: string, name: string): Promise<void> {
   await sendWhatsAppMessage(to, WELCOME_MENU_TEXT);
@@ -48,7 +47,7 @@ async function handleMenuOption(
     setSession(to, { step: ConversationStep.AWAITING_USD_AMOUNT, name });
     await sendWhatsAppMessage(
       to,
-      `Vamos a acreditar XLM en tu cuenta de Testnet, ligada a este WhatsApp.\n\n${ASK_USD_AMOUNT}`
+      `Vamos a enviarte USDC en Stellar Testnet a la cuenta ligada a este WhatsApp.\n\n${ASK_USD_AMOUNT}`
     );
     return;
   }
@@ -69,7 +68,7 @@ async function handleUsdAmount(
 
   await sendWhatsAppMessage(
     to,
-    "Registrando el movimiento en Stellar Testnet..."
+    "Enviando USDC por el Stellar Asset Contract..."
   );
 
   try {
@@ -77,27 +76,14 @@ async function handleUsdAmount(
     setSession(to, { step: ConversationStep.AWAITING_MENU_OPTION, name });
 
     const lines = [
-      "Movimiento confirmado en Stellar Testnet.",
+      "Transferencia USDC confirmada en Stellar Testnet.",
       "",
-      `Monto enviado: ${result.amountXlm} XLM`,
+      `Monto enviado: ${result.amountUsdc} USDC`,
       `Tu cuenta: ${result.publicKey}`,
-      `Saldo actual: ${result.nativeBalanceXlm} XLM`,
-      `Pago: ${explorerTxUrl(result.paymentHash)}`,
+      `Saldo USDC: ${result.usdcBalance} USDC`,
+      `Reserva XLM: ${result.nativeBalanceXlm} XLM`,
+      `Transacción: ${explorerTxUrl(result.usdcTxHash)}`,
     ];
-
-    if (result.contractTxHash) {
-      lines.push(`Contrato: ${explorerTxUrl(result.contractTxHash)}`);
-    }
-
-    if (result.contractBalanceCents) {
-      lines.push(
-        `Saldo en contrato Senda: ${formatCentsAsUsd(result.contractBalanceCents)}`
-      );
-    }
-
-    if (result.contractError) {
-      lines.push(`El pago on-chain salió, el contrato no: ${result.contractError}`);
-    }
 
     lines.push("", WELCOME_MENU_TEXT);
     await sendWhatsAppMessage(to, lines.join("\n"));
@@ -122,7 +108,7 @@ async function handleBalanceQuery(to: string, name: string): Promise<void> {
         to,
         [
           "Este WhatsApp todavía no tiene una cuenta Stellar asociada.",
-          "Elegí la opción 1 para crear la cuenta en Testnet y acreditar XLM.",
+          "Elegí la opción 1 para crear la cuenta en Testnet y recibir USDC.",
           "",
           WELCOME_MENU_TEXT,
         ].join("\n")
@@ -131,11 +117,12 @@ async function handleBalanceQuery(to: string, name: string): Promise<void> {
     }
 
     const lines = [
-      "Estado on-chain de tu cuenta (Stellar Testnet).",
+      "Saldo on-chain (Stellar Testnet).",
       "",
       `Red: ${state.network}`,
       `Cuenta: ${state.publicKey}`,
-      `Saldo: ${state.nativeBalanceXlm} XLM`,
+      `USDC: ${state.usdcBalance ?? "no disponible"}`,
+      `XLM (fees): ${state.nativeBalanceXlm}`,
       `Explorador: ${explorerAccountUrl(state.publicKey)}`,
     ];
 
@@ -143,12 +130,8 @@ async function handleBalanceQuery(to: string, name: string): Promise<void> {
       lines.push(`Ledger: ${state.latestLedger}`);
     }
 
-    if (state.contractBalanceCents) {
-      lines.push(
-        `Saldo en contrato Senda: ${formatCentsAsUsd(state.contractBalanceCents)}`
-      );
-    } else if (state.contractId) {
-      lines.push("El contrato está configurado, pero no hay saldo acreditado aún.");
+    if (state.usdcSacId) {
+      lines.push(`SAC USDC: ${state.usdcSacId}`);
     }
 
     lines.push("", WELCOME_MENU_TEXT);

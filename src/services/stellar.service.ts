@@ -13,6 +13,13 @@ import {
   rpc,
 } from "@stellar/stellar-sdk";
 import { getWalletByPhone, saveWallet } from "./wallet.store";
+import {
+  ensureUsdcTrustline,
+  fromUsdcStroops,
+  getUsdcBalance,
+  getUsdcSacId,
+  transferUsdc,
+} from "./usdc.service";
 
 export type StellarNetworkName = "testnet" | "public";
 
@@ -31,21 +38,20 @@ export interface CreatedAccount {
 
 export interface CreditOnChainResult {
   publicKey: string;
-  amountXlm: string;
-  paymentHash: string;
+  amountUsdc: string;
+  usdcBalance: string;
+  usdcTxHash: string;
   nativeBalanceXlm: string;
-  contractTxHash?: string;
-  contractBalanceCents?: string;
-  contractError?: string;
+  usdcError?: string;
 }
 
 export interface UserOnChainState {
   network: StellarNetworkName;
   publicKey: string;
   nativeBalanceXlm: string;
+  usdcBalance?: string;
+  usdcSacId?: string;
   latestLedger?: number;
-  contractId?: string;
-  contractBalanceCents?: string;
 }
 
 const NETWORK_DEFAULTS: Record<StellarNetworkName, StellarNetworkConfig> = {
@@ -291,41 +297,19 @@ export async function creditUserOnTestnet(
   phone: string,
   usdAmount: number
 ): Promise<CreditOnChainResult> {
-  if (usdAmount > MAX_XLM_PER_OPERATION) {
-    throw new Error(
-      `El máximo por operación en Testnet es ${MAX_XLM_PER_OPERATION} XLM`
-    );
-  }
-
   const user = await getOrCreateUserAccount(phone);
-  const paymentHash = await submitHorizonPayment(user.publicKey, usdAmount);
+  await ensureUsdcTrustline(user);
+
+  const transfer = await transferUsdc(user.publicKey, usdAmount);
   const nativeBalanceXlm = await getNativeBalance(user.publicKey);
 
-  const result: CreditOnChainResult = {
+  return {
     publicKey: user.publicKey,
-    amountXlm: formatXlmAmount(usdAmount),
-    paymentHash,
+    amountUsdc: transfer.amountUsdc,
+    usdcBalance: transfer.balanceUsdc,
+    usdcTxHash: transfer.txHash,
     nativeBalanceXlm,
   };
-
-  if (getConfiguredContractId()) {
-    try {
-      const amountCents = BigInt(Math.round(usdAmount * 100));
-      const contractResult = await submitContractCredit(
-        user.publicKey,
-        amountCents
-      );
-      result.contractTxHash = contractResult.hash;
-      result.contractBalanceCents = contractResult.balanceCents;
-    } catch (error) {
-      result.contractError =
-        error instanceof Error
-          ? error.message
-          : "La invocación del contrato falló";
-    }
-  }
-
-  return result;
 }
 
 export async function getUserOnChainState(
@@ -341,6 +325,7 @@ export async function getUserOnChainState(
     network: config.name,
     publicKey: wallet.publicKey,
     nativeBalanceXlm: await getNativeBalance(wallet.publicKey),
+    usdcSacId: getUsdcSacId(),
   };
 
   try {
@@ -350,16 +335,11 @@ export async function getUserOnChainState(
     // Horizon balance already loaded; ledger is optional context.
   }
 
-  const contractId = getConfiguredContractId();
-  if (contractId) {
-    state.contractId = contractId;
-    try {
-      state.contractBalanceCents = await getContractBalanceCents(
-        wallet.publicKey
-      );
-    } catch (error) {
-      console.error("No se pudo leer balance del contrato:", error);
-    }
+  try {
+    const usdc = await getUsdcBalance(wallet.publicKey);
+    state.usdcBalance = fromUsdcStroops(usdc);
+  } catch (error) {
+    console.error("No se pudo leer balance USDC del SAC:", error);
   }
 
   return state;
