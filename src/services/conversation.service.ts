@@ -7,6 +7,7 @@ import {
   classifyIntent,
   extractUsdAmount,
   hasSendVerb,
+  normalizeText,
 } from "./intent.service";
 import { humanizeLedgerError } from "./ledger-error.service";
 import { creditUserOnTestnet, getUserOnChainState } from "./stellar.service";
@@ -35,6 +36,12 @@ const ASK_WITHDRAW_AMOUNT =
   "¿Cuánto querés retirar en efectivo? Por ejemplo 20 o «15 dólares».";
 
 const MAX_USDC_PER_SEND = 500;
+
+function isGreeting(text: string): boolean {
+  return /^(hola+|holis|buenas|buen\s+dia|buenos\s+dias|buenas\s+tardes|buenas\s+noches|hey|que\s+tal|como\s+estas)$/.test(
+    normalizeText(text)
+  );
+}
 
 function formatUsdcLabel(amount: number): string {
   if (Number.isInteger(amount)) {
@@ -309,6 +316,10 @@ async function dispatchIntent(
       await startSendFlow(to, name);
       return;
     case "menu":
+      if (isGreeting(text)) {
+        await sendWelcomeFlow(to, name);
+        return;
+      }
       await sendMenu(to, name);
       return;
     case "unknown":
