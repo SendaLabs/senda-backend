@@ -16,6 +16,7 @@ export interface StoredTransaction {
   status: string;
   txHash?: string;
   sep24TransactionId?: string;
+  sep24JwtEnc?: string;
   createdAt: string;
 }
 
@@ -86,6 +87,7 @@ export async function createTransaction(input: {
   status: string;
   txHash?: string;
   sep24TransactionId?: string;
+  sep24JwtEnc?: string;
 }): Promise<StoredTransaction> {
   const row: StoredTransaction = {
     id: `tx_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -139,6 +141,14 @@ export async function upsertYieldPosition(
     }
     return db;
   });
+}
+
+export async function listPendingSep24(): Promise<StoredTransaction[]> {
+  return readDb().transactions.filter(
+    (item) =>
+      item.type === "withdraw_sep24" &&
+      (item.status === "pending" || item.status === "pending_user_transfer_start")
+  );
 }
 
 export async function findYieldPosition(

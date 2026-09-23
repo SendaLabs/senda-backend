@@ -96,7 +96,7 @@ Para que Meta llegue al webhook en local hace falta un túnel (ngrok, Cloudflare
 | `STELLAR_CONTRACT_ID` | ID `C…` del contrato en Testnet |
 | `CUSTODY_MASTER_SECRET` | Secreto HKDF para derivar/recuperar cuentas (SEP-30). Obligatorio; no puede ser `STELLAR_SECRET_KEY`. Si lo rotás, las wallets ya persistidas no cambian de dirección: el proceso falla hasta migrar. |
 | `FILE_VAULT_SECRET` | Clave AES-256-GCM para cifrar códigos de retiro y seeds legado en `data/`. Distinta de la operativa y de la master. |
-| `STELLAR_OFFRAMP_PUBLIC_KEY` | Vault que recibe el USDC al retirar efectivo |
+| `STELLAR_OFFRAMP_PUBLIC_KEY` | Vault que recibe el USDC al retirar efectivo. Tiene que ser una `G…` distinta de la operativa. |
 | `OPENAI_API_KEY` | Clave para transcribir notas de voz con Whisper |
 | `OPENAI_TRANSCRIPTION_MODEL` | Modelo de transcripción (default `whisper-1`) |
 | `USE_PRIVY_WALLETS` | `true` usa wallets MPC de Privy; `false` (default) deja SEP-30 |
@@ -157,7 +157,7 @@ Frases como «retirar a Mercado Pago» o «pasar 20 a mi cuenta» inician SEP-10
 
 ## Rendimiento en Blend
 
-«poner 10 a rendir», «cuánto tengo rindiendo» y «sacar de rendir» hablan con el pool Blend de Testnet (`BLEND_POOL_ID`). La posición se guarda en `data/senda-db.json`. El usuario no ve IDs de contrato ni jerga de DeFi.
+«poner 10 a rendir», «cuánto tengo rindiendo» y «sacar de rendir» hablan con el pool Blend de Testnet (`BLEND_POOL_ID`). Se usa `SupplyCollateral` / `WithdrawCollateral` (no Supply con deuda). Al consultar, se lee la posición on-chain; el JSON solo cachea stroops. Si el SDK no arma la operación, no se manda nada a Soroban.
 
 ## Seguridad
 

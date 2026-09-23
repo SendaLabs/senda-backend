@@ -34,15 +34,15 @@ SEP-10 firma el XDR del challenge **sin** verificar que la source sea el servido
 
 ## Checklist
 
-- [ ] Offramp: persistir orden `pending_lock` **antes** de transferir; si la tx confirma, pasar a `pending_pickup`; si falla el write post-tx, job de reconciliación por `txHash`.
-- [ ] Vault obligatorio y distinto de la operativa.
-- [ ] SEP-24: persistir el JWT (cifrado) o re-autenticar; un worker/poller debe retomar txs `pending` al arrancar.
-- [ ] Rechazar `amount_in` si difiere más de una tolerancia (p. ej. 1%) del monto pedido.
-- [ ] Validar `withdraw_anchor_account` (G… / C…) y memo según `withdraw_memo_type`.
-- [ ] Chequear saldo + bloquear (o reservar) antes de mandar el link.
-- [ ] Avisar por WhatsApp si el poll expira o el proceso se cae (“no pude terminar el retiro”).
-- [ ] SEP-10: validar challenge (home domain, sequence, operaciones) según SEP-10; no cachear TOML infinito; exigir HTTPS.
-- [ ] No firmar FeeBump ni XDR que no sea el challenge esperado.
+- [x] Offramp: persistir orden `pending_lock` **antes** de transferir; si la tx confirma, pasar a `pending_pickup`; si falla el write post-tx, job de reconciliación por `txHash`.
+- [x] Vault obligatorio y distinto de la operativa.
+- [x] SEP-24: persistir el JWT (cifrado) o re-autenticar; un worker/poller debe retomar txs `pending` al arrancar.
+- [x] Rechazar `amount_in` si difiere más de una tolerancia (p. ej. 1%) del monto pedido.
+- [x] Validar `withdraw_anchor_account` (G… / C…) y memo según `withdraw_memo_type`.
+- [x] Chequear saldo + bloquear (o reservar) antes de mandar el link.
+- [x] Avisar por WhatsApp si el poll expira o el proceso se cae (“no pude terminar el retiro”).
+- [x] SEP-10: validar challenge (home domain, sequence, operaciones) según SEP-10; no cachear TOML infinito; exigir HTTPS.
+- [x] No firmar FeeBump ni XDR que no sea el challenge esperado.
 
 ## Criterios de aceptación
 
