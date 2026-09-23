@@ -1,12 +1,12 @@
 import {
   Address,
-  BASE_FEE,
   Contract,
   TransactionBuilder,
   nativeToScVal,
   rpc,
   xdr,
 } from "@stellar/stellar-sdk";
+import { getInclusionFee } from "./fees.service";
 import {
   ensureUserRecord,
   findYieldPosition,
@@ -104,24 +104,39 @@ async function submitBlendRequest(
   }
 
   const built = new TransactionBuilder(account, {
-    fee: BASE_FEE,
+    fee: await getInclusionFee(),
     networkPassphrase,
   })
     .addOperation(operation)
     .setTimeout(60)
     .build();
 
+  const simulated = await server.simulateTransaction(built);
+  if (rpc.Api.isSimulationError(simulated)) {
+    throw new Error("La simulación de Blend rechazó la operación");
+  }
+
   const prepared = await server.prepareTransaction(built);
   await signStellarTransaction(user, prepared);
   const sent = await server.sendTransaction(prepared);
-  if (sent.status === "ERROR") {
+  if (sent.status === "ERROR" || !sent.hash) {
     throw new Error("Blend rechazó la operación");
   }
-  const confirmed = await server.pollTransaction(sent.hash, { attempts: 30 });
-  if (confirmed.status !== rpc.Api.GetTransactionStatus.SUCCESS) {
-    throw new Error("Blend no confirmó la operación");
+  try {
+    const confirmed = await server.pollTransaction(sent.hash, { attempts: 30 });
+    if (confirmed.status === rpc.Api.GetTransactionStatus.SUCCESS) {
+      return sent.hash;
+    }
+    if (confirmed.status === rpc.Api.GetTransactionStatus.FAILED) {
+      throw new Error("Blend no confirmó la operación");
+    }
+    throw new Error("Blend quedó pendiente. No reenviamos el pago.");
+  } catch (error) {
+    if (error instanceof Error && /pendiente|no confirmó/.test(error.message)) {
+      throw error;
+    }
+    throw new Error("Blend quedó pendiente. No reenviamos el pago.");
   }
-  return sent.hash;
 }
 
 export async function supplyToBlend(

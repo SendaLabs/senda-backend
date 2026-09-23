@@ -1,7 +1,6 @@
 import {
   Address,
   Asset,
-  BASE_FEE,
   Contract,
   Horizon,
   Keypair,
@@ -13,6 +12,8 @@ import {
   scValToNative,
 } from "@stellar/stellar-sdk";
 import { signStellarTransaction } from "../wallet/stellar-signer";
+import { getInclusionFee } from "./fees.service";
+import { logSafeError } from "./whatsapp.service";
 
 export const USDC_DECIMALS = 7;
 export const USDC_SCALE = 10n ** BigInt(USDC_DECIMALS);
@@ -26,24 +27,32 @@ const DEFAULT_USDC_ISSUER =
 
 const MAX_USDC_PER_OPERATION = 500;
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+export class UsdcBalanceUnavailableError extends Error {
+  constructor(message = "No se pudo consultar el saldo de USDC") {
+    super(message);
+    this.name = "UsdcBalanceUnavailableError";
+  }
 }
 
-async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    try {
-      return await fn();
-    } catch (error) {
-      lastError = error;
-      console.error(`USDC intento ${attempt}/${attempts} falló:`, error);
-      if (attempt < attempts) {
-        await sleep(400 * attempt);
-      }
-    }
+export class SacUnconfirmedError extends Error {
+  readonly hash: string;
+
+  constructor(hash: string) {
+    super("La transferencia está pendiente. No reenviamos el pago.");
+    this.name = "SacUnconfirmedError";
+    this.hash = hash;
   }
-  throw lastError;
+}
+
+export class AmountLimitError extends Error {
+  constructor() {
+    super("El monto supera el máximo por operación");
+    this.name = "AmountLimitError";
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export interface UsdcWallet {
@@ -92,6 +101,11 @@ function getOpsKeypair(): Keypair {
   return Keypair.fromSecret(secret);
 }
 
+function isAccountMissing(error: unknown): boolean {
+  const text = error instanceof Error ? `${error.name} ${error.message}` : String(error);
+  return /not found|404|resource missing/i.test(text);
+}
+
 export function getUsdcAsset(): Asset {
   const code = process.env.USDC_CODE?.trim() || DEFAULT_USDC_CODE;
   const issuer = process.env.USDC_ISSUER?.trim() || DEFAULT_USDC_ISSUER;
@@ -102,11 +116,32 @@ export function getUsdcSacId(): string {
   return process.env.USDC_SAC_CONTRACT_ID?.trim() || DEFAULT_USDC_SAC_ID;
 }
 
-export function toUsdcStroops(amount: number): bigint {
-  if (!Number.isFinite(amount) || amount <= 0) {
+export function toUsdcStroops(
+  amount: number | string,
+  options?: { allowZero?: boolean }
+): bigint {
+  const normalized =
+    typeof amount === "number"
+      ? Number.isFinite(amount) && amount >= 0
+        ? amount.toFixed(USDC_DECIMALS)
+        : ""
+      : amount.trim();
+
+  if (!normalized || !/^\d+(\.\d+)?$/.test(normalized)) {
     throw new Error("El monto de USDC debe ser mayor a 0");
   }
-  return BigInt(Math.round(amount * Number(USDC_SCALE)));
+
+  const [whole, frac = ""] = normalized.split(".");
+  if (frac.length > USDC_DECIMALS && /[1-9]/.test(frac.slice(USDC_DECIMALS))) {
+    throw new Error("El monto de USDC tiene demasiados decimales");
+  }
+
+  const padded = frac.slice(0, USDC_DECIMALS).padEnd(USDC_DECIMALS, "0");
+  const stroops = BigInt(whole) * USDC_SCALE + BigInt(padded || "0");
+  if (stroops < 0n || (!options?.allowZero && stroops === 0n)) {
+    throw new Error("El monto de USDC debe ser mayor a 0");
+  }
+  return stroops;
 }
 
 export function fromUsdcStroops(raw: bigint | number | string): string {
@@ -134,13 +169,12 @@ export async function getHorizonUsdcBalance(publicKey: string): Promise<bigint> 
     if (!line || !("balance" in line)) {
       return 0n;
     }
-    const amount = Number(line.balance);
-    if (!Number.isFinite(amount) || amount <= 0) {
+    return toUsdcStroops(line.balance, { allowZero: true });
+  } catch (error) {
+    if (isAccountMissing(error)) {
       return 0n;
     }
-    return toUsdcStroops(amount);
-  } catch {
-    return 0n;
+    throw new UsdcBalanceUnavailableError();
   }
 }
 
@@ -162,7 +196,7 @@ export async function getUsdcBalance(publicKey: string): Promise<bigint> {
       const account = await server.getAccount(publicKey);
       const contract = new Contract(sacId);
       const tx = new TransactionBuilder(account, {
-        fee: BASE_FEE,
+        fee: await getInclusionFee(),
         networkPassphrase: passphrase,
       })
         .addOperation(
@@ -179,7 +213,9 @@ export async function getUsdcBalance(publicKey: string): Promise<bigint> {
         return BigInt(scValToNative(simulation.result.retval));
       }
     } catch (error) {
-      console.error("SAC balance fallback:", error);
+      if (!isAccountMissing(error)) {
+        logSafeError("SAC balance", error);
+      }
     }
 
     return getHorizonUsdcBalance(publicKey);
@@ -187,24 +223,23 @@ export async function getUsdcBalance(publicKey: string): Promise<bigint> {
 }
 
 export async function ensureUsdcTrustline(wallet: UsdcWallet): Promise<void> {
-  await withRetry(async () => {
-    const horizon = getHorizonServer();
-    const asset = getUsdcAsset();
-    const account = await horizon.loadAccount(wallet.publicKey);
+  const horizon = getHorizonServer();
+  const asset = getUsdcAsset();
 
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const account = await horizon.loadAccount(wallet.publicKey);
     const hasTrustline = account.balances.some(
       (balance) =>
         "asset_code" in balance &&
         balance.asset_code === asset.code &&
         balance.asset_issuer === asset.issuer
     );
-
     if (hasTrustline) {
       return;
     }
 
     const tx = new TransactionBuilder(account, {
-      fee: BASE_FEE,
+      fee: await getInclusionFee(),
       networkPassphrase: getNetworkPassphrase(),
     })
       .addOperation(Operation.changeTrust({ asset }))
@@ -214,17 +249,19 @@ export async function ensureUsdcTrustline(wallet: UsdcWallet): Promise<void> {
     await signStellarTransaction(wallet, tx);
     try {
       await horizon.submitTransaction(tx);
+      return;
     } catch (error) {
-      const details = JSON.stringify(error);
-      if (
-        details.includes("op_already_exists") ||
-        details.includes("already")
-      ) {
+      const details = error instanceof Error ? error.message : "";
+      if (/op_already_exists|already/i.test(details)) {
         return;
       }
-      throw error;
+      logSafeError("USDC trustline", error);
+      if (attempt === 3) {
+        throw error;
+      }
+      await sleep(400 * attempt);
     }
-  });
+  }
 }
 
 async function transferUsdcViaHorizon(
@@ -237,14 +274,14 @@ async function transferUsdcViaHorizon(
   const asset = getUsdcAsset();
 
   const tx = new TransactionBuilder(source, {
-    fee: BASE_FEE,
+    fee: await getInclusionFee(),
     networkPassphrase: getNetworkPassphrase(),
   })
     .addOperation(
       Operation.payment({
         destination: toPublicKey,
         asset,
-        amount: amount.toFixed(7),
+        amount: fromUsdcStroops(toUsdcStroops(amount)),
       })
     )
     .setTimeout(60)
@@ -253,6 +290,20 @@ async function transferUsdcViaHorizon(
   await signStellarTransaction(from, tx);
   const result = await horizon.submitTransaction(tx);
   return result.hash;
+}
+
+async function recoverSacHash(
+  server: rpc.Server,
+  hash: string
+): Promise<boolean> {
+  const confirmed = await server.getTransaction(hash);
+  if (confirmed.status === rpc.Api.GetTransactionStatus.SUCCESS) {
+    return true;
+  }
+  if (confirmed.status === rpc.Api.GetTransactionStatus.FAILED) {
+    throw new Error("SAC transfer FAILED");
+  }
+  return false;
 }
 
 async function transferUsdcViaSac(
@@ -265,7 +316,7 @@ async function transferUsdcViaSac(
   const contract = new Contract(getUsdcSacId());
 
   const built = new TransactionBuilder(account, {
-    fee: BASE_FEE,
+    fee: await getInclusionFee(),
     networkPassphrase: getNetworkPassphrase(),
   })
     .addOperation(
@@ -279,21 +330,75 @@ async function transferUsdcViaSac(
     .setTimeout(60)
     .build();
 
+  const simulated = await server.simulateTransaction(built);
+  if (rpc.Api.isSimulationError(simulated)) {
+    throw new Error("La simulación SAC rechazó la transferencia");
+  }
+
   const prepared = await server.prepareTransaction(built);
   await signStellarTransaction(from, prepared);
 
   const sent = await server.sendTransaction(prepared);
-  if (sent.status === "ERROR") {
-    const detail = JSON.stringify(sent.errorResult ?? sent);
-    throw new Error(`SAC HostError transfer rejected ${detail}`);
+  if (sent.status === "ERROR" || !sent.hash) {
+    throw new Error("SAC rechazó la transferencia antes de incluirla");
   }
 
-  const confirmed = await server.pollTransaction(sent.hash, { attempts: 30 });
-  if (confirmed.status !== rpc.Api.GetTransactionStatus.SUCCESS) {
-    throw new Error(`SAC HostError transfer ${confirmed.status}`);
+  try {
+    const confirmed = await server.pollTransaction(sent.hash, { attempts: 30 });
+    if (confirmed.status === rpc.Api.GetTransactionStatus.SUCCESS) {
+      return sent.hash;
+    }
+    if (confirmed.status === rpc.Api.GetTransactionStatus.FAILED) {
+      throw new Error("SAC transfer FAILED");
+    }
+    throw new SacUnconfirmedError(sent.hash);
+  } catch (error) {
+    if (error instanceof SacUnconfirmedError) {
+      throw error;
+    }
+    if (error instanceof Error && error.message === "SAC transfer FAILED") {
+      throw error;
+    }
+    throw new SacUnconfirmedError(sent.hash);
+  }
+}
+
+export async function submitUsdcTransferOnce(
+  from: UsdcWallet,
+  toPublicKey: string,
+  amount: number,
+  transferSac = transferUsdcViaSac,
+  transferHorizon = transferUsdcViaHorizon,
+  recoverHash = recoverSacHash
+): Promise<string> {
+  if (amount > MAX_USDC_PER_OPERATION) {
+    throw new AmountLimitError();
   }
 
-  return sent.hash;
+  const stroops = toUsdcStroops(amount);
+
+  try {
+    return await transferSac(from, toPublicKey, stroops);
+  } catch (error) {
+    if (error instanceof SacUnconfirmedError) {
+      try {
+        if (await recoverHash(getRpcServer(), error.hash)) {
+          return error.hash;
+        }
+      } catch (recoverError) {
+        if (
+          recoverError instanceof Error &&
+          recoverError.message === "SAC transfer FAILED"
+        ) {
+          throw recoverError;
+        }
+      }
+      throw error;
+    }
+
+    logSafeError("SAC transfer, fallback Horizon", error);
+    return transferHorizon(from, toPublicKey, amount);
+  }
 }
 
 async function submitUsdcTransfer(
@@ -302,22 +407,16 @@ async function submitUsdcTransfer(
   amount: number,
   balanceOf: string
 ): Promise<UsdcTransferResult> {
-  if (amount > MAX_USDC_PER_OPERATION) {
-    amount = MAX_USDC_PER_OPERATION;
-  }
-
   const stroops = toUsdcStroops(amount);
-
-  const txHash = await withRetry(async () => {
-    try {
-      return await transferUsdcViaSac(from, toPublicKey, stroops);
-    } catch (sacError) {
-      console.error("SAC transfer, intento Horizon USDC:", sacError);
-      return transferUsdcViaHorizon(from, toPublicKey, amount);
+  const txHash = await submitUsdcTransferOnce(from, toPublicKey, amount);
+  let balanceUsdc = fromUsdcStroops(stroops);
+  try {
+    balanceUsdc = fromUsdcStroops(await getUsdcBalance(balanceOf));
+  } catch (error) {
+    if (!(error instanceof UsdcBalanceUnavailableError)) {
+      throw error;
     }
-  });
-
-  const balance = await getUsdcBalance(balanceOf);
+  }
 
   return {
     from: from.publicKey,
@@ -325,7 +424,7 @@ async function submitUsdcTransfer(
     amountUsdc: fromUsdcStroops(stroops),
     amountStroops: stroops.toString(),
     txHash,
-    balanceUsdc: fromUsdcStroops(balance),
+    balanceUsdc,
   };
 }
 

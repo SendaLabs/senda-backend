@@ -13,6 +13,7 @@ import {
   verifyMetaSignature,
 } from "./services/webhook-security.service";
 import { assertRuntimeSecrets } from "./services/custody-secrets.service";
+import { assertNetworkConsistency } from "./services/stellar.service";
 import {
   logSafeError,
   sendWhatsAppMessage,
@@ -290,6 +291,7 @@ app.post("/webhook", (req: Request, res: Response) => {
 
 try {
   assertRuntimeSecrets();
+  assertNetworkConsistency();
 } catch (error) {
   console.error(error instanceof Error ? error.message : "Config inválida");
   process.exit(1);

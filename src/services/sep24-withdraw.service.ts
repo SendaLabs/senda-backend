@@ -1,6 +1,5 @@
 import {
   Asset,
-  BASE_FEE,
   Horizon,
   Memo,
   Networks,
@@ -14,6 +13,7 @@ import {
 } from "../db/users.repository";
 import { getSep10Jwt } from "../sep/sep10";
 import { pollTransactionStatus, startWithdraw } from "../sep/sep24";
+import { getInclusionFee } from "./fees.service";
 import { getOrCreateUserAccount } from "./stellar.service";
 import { getUsdcAsset, transferUsdcFromWallet } from "./usdc.service";
 import { signStellarTransaction } from "../wallet/stellar-signer";
@@ -54,7 +54,7 @@ async function sendToAnchor(
   const source = await horizon().loadAccount(user.publicKey);
   const asset = getUsdcAsset();
   const tx = new TransactionBuilder(source, {
-    fee: BASE_FEE,
+    fee: await getInclusionFee(),
     networkPassphrase: passphrase(),
   })
     .addOperation(

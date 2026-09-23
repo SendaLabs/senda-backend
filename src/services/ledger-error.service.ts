@@ -13,6 +13,33 @@ export function humanizeLedgerError(error: unknown): string {
   const raw = errorText(error).toLowerCase();
 
   if (
+    error instanceof Error &&
+    (error.name === "UsdcBalanceUnavailableError" ||
+      /no se pudo consultar el saldo/.test(raw))
+  ) {
+    return "No pude consultar tu saldo ahora. Probá en un rato.";
+  }
+
+  if (
+    error instanceof Error &&
+    (error.name === "SacUnconfirmedError" || /no reenviamos el pago/.test(raw))
+  ) {
+    return "El envío quedó en camino. No lo repetimos para no cobrarte dos veces. Pedime el saldo en un rato.";
+  }
+
+  if (error instanceof Error && error.name === "AmountLimitError") {
+    return "Ese monto supera el máximo por operación. Pedime uno más chico.";
+  }
+
+  if (error instanceof Error && error.name === "CreditRateLimitError") {
+    return "Por hoy llegaste al tope de envíos. Probá más tarde.";
+  }
+
+  if (error instanceof Error && error.name === "CreditInFlightError") {
+    return "Ese envío ya se está procesando. Dame un toque y pedime el saldo.";
+  }
+
+  if (
     /budget|resource limit|tx_insufficient_fee|insufficient fee|gas|exceeded.*limit/.test(
       raw
     )
@@ -36,5 +63,25 @@ export function humanizeLedgerError(error: unknown): string {
     return "Ups, hubo un pequeño problema al procesar la red de Stellar. Intentemos de nuevo en un momento.";
   }
 
-  return "Ups, hubo un pequeño problema al procesar la red de Stellar. Intentemos de nuevo en un momento.";
+  return "No pude completar esa operación ahora. Probá de nuevo en un rato.";
+}
+
+export function replyUserError(error: unknown): string {
+  if (error instanceof Error && error.name === "WhatsAppSendError") {
+    return "No pude mandarte el mensaje ahora. Escribime de nuevo en un rato.";
+  }
+
+  const raw = errorText(error).toLowerCase();
+  const isLedger =
+    (error instanceof Error &&
+      /Usdc|Sac|Amount|Credit|Offramp|Blend/.test(error.name)) ||
+    /stellar|soroban|horizon|hosterror|wasm|underfund|tx_insufficient|op_|blend|usdc|ledger/.test(
+      raw
+    );
+
+  if (isLedger) {
+    return humanizeLedgerError(error);
+  }
+
+  return "Tuve un problema al procesar tu mensaje. ¿Lo intentamos de nuevo?";
 }

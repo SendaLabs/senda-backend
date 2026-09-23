@@ -30,15 +30,15 @@ Otras fallas Stellar en el código actual:
 
 ## Checklist
 
-- [ ] No reintentar un `sendTransaction` que devolvió hash. Poll/reconsultar por hash; solo entonces fallback Horizon si **seguro** no llegó.
+- [x] No reintentar un `sendTransaction` que devolvió hash. Poll/reconsultar por hash; solo entonces fallback Horizon si **seguro** no llegó.
 - [ ] Idempotency: memo o clave `phone+messageId+amount` y consultar pagos recientes antes de firmar.
-- [ ] Fee bump / `fee = max(BASE_FEE, latest*n)` en todas las txs (Horizon y Soroban).
-- [ ] Simular invocaciones SAC/Blend y abortar si `isSimulationError`.
-- [ ] Balance: no tratar un error RPC como 0; distinguir “sin trustline” de “RPC caído”.
-- [ ] Stroops con decimal seguro (string o bigint), no `Number * 1e7`.
-- [ ] Fallar el crédito si la operativa no está fondeada; no continuar a ciegas.
-- [ ] Validar consistencia `STELLAR_NETWORK` ↔ passphrase ↔ Horizon/RPC URLs al boot.
-- [ ] Tests: mock de poll timeout después de `PENDING` → un solo pago on-chain.
+- [x] Fee bump / `fee = max(BASE_FEE, latest*n)` en todas las txs (Horizon y Soroban).
+- [x] Simular invocaciones SAC/Blend y abortar si `isSimulationError`.
+- [x] Balance: no tratar un error RPC como 0; distinguir “sin trustline” de “RPC caído”.
+- [x] Stroops con decimal seguro (string o bigint), no `Number * 1e7`.
+- [x] Fallar el crédito si la operativa no está fondeada; no continuar a ciegas.
+- [x] Validar consistencia `STELLAR_NETWORK` ↔ passphrase ↔ Horizon/RPC URLs al boot.
+- [x] Tests: mock de poll timeout después de `PENDING` → un solo pago on-chain.
 
 ## Criterios de aceptación
 
