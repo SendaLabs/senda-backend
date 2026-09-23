@@ -1,3 +1,5 @@
+import { readFile } from "fs/promises";
+import path from "path";
 import axios, { isAxiosError } from "axios";
 import { getWhatsAppUserId } from "./whatsapp.recipients";
 
@@ -50,7 +52,7 @@ type WhatsAppOutgoingPayload = {
   recipient?: string;
   type: "text" | "video";
   text?: { body: string };
-  video?: { link: string; caption?: string };
+  video?: { link?: string; id?: string; caption?: string };
 };
 
 export class WhatsAppSendError extends Error {
@@ -254,11 +256,69 @@ export async function sendWhatsAppMessage(
   });
 }
 
+const WELCOME_VIDEO_FILE = path.join(
+  process.cwd(),
+  "src",
+  "public",
+  "0920.mp4"
+);
+
+let cachedWelcomeMediaId: string | undefined;
+
+async function uploadWelcomeVideo(): Promise<string> {
+  if (cachedWelcomeMediaId) {
+    return cachedWelcomeMediaId;
+  }
+
+  const { token, phoneNumberId } = getWhatsAppConfig();
+  const buffer = await readFile(WELCOME_VIDEO_FILE);
+  const form = new FormData();
+  form.append("messaging_product", "whatsapp");
+  form.append("type", "video");
+  form.append(
+    "file",
+    new Blob([buffer], { type: "video/mp4" }),
+    "welcome.mp4"
+  );
+
+  const { data } = await axios.post<{ id?: string }>(
+    `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/media`,
+    form,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      maxBodyLength: 16 * 1024 * 1024,
+    }
+  );
+
+  if (!data.id) {
+    throw new Error("Meta no devolvió id de media para el video");
+  }
+
+  cachedWelcomeMediaId = data.id;
+  console.log(`WhatsApp: video de bienvenida subido media=${data.id}`);
+  return data.id;
+}
+
 export async function sendWhatsAppVideo(
   to: string,
   link: string,
   caption?: string
 ): Promise<WhatsAppMessageResponse> {
+  try {
+    const mediaId = await uploadWelcomeVideo();
+    return await postWhatsAppMessage({
+      messaging_product: "whatsapp",
+      to,
+      type: "video",
+      video: caption ? { id: mediaId, caption } : { id: mediaId },
+    });
+  } catch (error) {
+    logSafeError("WhatsApp: upload de video, fallback a link", error);
+    cachedWelcomeMediaId = undefined;
+  }
+
   return postWhatsAppMessage({
     messaging_product: "whatsapp",
     to,
