@@ -20,6 +20,12 @@ import {
   partnerPrompt,
   type OfframpPartnerId,
 } from "./offramp.service";
+import { startMercadoPagoWithdraw } from "./sep24-withdraw.service";
+import {
+  getBlendPosition,
+  supplyToBlend,
+  withdrawFromBlend,
+} from "./blend.service";
 import {
   logSafeError,
   sendWhatsAppMessage,
@@ -34,6 +40,15 @@ const ASK_AMOUNT =
 
 const ASK_WITHDRAW_AMOUNT =
   "¿Cuánto querés retirar en efectivo? Por ejemplo 20 o «15 dólares».";
+
+const ASK_MP_AMOUNT =
+  "¿Cuánto querés pasar a Mercado Pago? Por ejemplo 20 o «15 dólares».";
+
+const ASK_YIELD_SUPPLY_AMOUNT =
+  "¿Cuánto querés poner a rendir? Por ejemplo 10 o «20 dólares».";
+
+const ASK_YIELD_WITHDRAW_AMOUNT =
+  "¿Cuánto querés sacar de lo que está rindiendo? Por ejemplo 10.";
 
 const MAX_USDC_PER_SEND = 500;
 
@@ -53,7 +68,7 @@ function formatUsdcLabel(amount: number): string {
 function guideUser(name: string): string {
   return [
     `${name}, ¿en qué te ayudo?`,
-    "Podés pedirme el saldo, armar un envío («quiero mandar 20 dólares») o retirar efectivo («retirar 15 en MoneyGram»).",
+    "Podés pedirme el saldo, armar un envío («quiero mandar 20 dólares»), retirar efectivo («retirar 15 en MoneyGram»), pasar plata a Mercado Pago o ponerla a rendir.",
   ].join("\n");
 }
 
@@ -157,7 +172,7 @@ async function executeUsdcTransfer(
         `Listo 💸 Ya acreditamos ${result.amountUsdc} USDC en tu cuenta.`,
         `Ahora tenés ${result.usdcBalance} USDC.`,
         "",
-        "Si querés, pedime el saldo, mandá otro monto o retiralo en efectivo.",
+        "Si querés, pedime el saldo, mandá otro monto, retiralo en efectivo o pasalo a Mercado Pago.",
       ].join("\n")
     );
   } catch (error) {
@@ -253,7 +268,7 @@ async function handleBalanceQuery(to: string, name: string): Promise<void> {
       [
         `Tenés ${balance} USDC listos para usar.`,
         "",
-        "Si querés enviar, escribí «mandar 10». Si querés efectivo, «retirar 15 en MoneyGram».",
+        "Si querés enviar, escribí «mandar 10». Si querés efectivo, «retirar 15 en MoneyGram». También podés pasar a Mercado Pago o poner a rendir.",
       ].join("\n")
     );
   } catch (error) {
@@ -284,6 +299,142 @@ async function handleWithdrawStatus(to: string, name: string): Promise<void> {
   );
 }
 
+async function startMercadoPagoFlow(
+  to: string,
+  name: string,
+  amount: number | null
+): Promise<void> {
+  if (amount === null) {
+    setSession(to, { step: ConversationStep.AWAITING_MP_AMOUNT, name });
+    await sendWhatsAppMessage(to, ASK_MP_AMOUNT);
+    return;
+  }
+
+  if (amount > MAX_USDC_PER_SEND) {
+    setSession(to, { step: ConversationStep.AWAITING_MP_AMOUNT, name });
+    await sendWhatsAppMessage(
+      to,
+      `Por ahora el máximo por retiro es ${MAX_USDC_PER_SEND} dólares. Decime otro monto.`
+    );
+    return;
+  }
+
+  await sendWhatsAppMessage(
+    to,
+    `Dale, te armo el retiro de ${formatUsdcLabel(amount)} dólares a Mercado Pago...`
+  );
+
+  try {
+    const started = await startMercadoPagoWithdraw(to, amount);
+    setSession(to, idleSession(name));
+    await sendWhatsAppMessage(
+      to,
+      [
+        "Listo. Abrí este enlace para completar el retiro en Mercado Pago:",
+        started.url,
+        "",
+        "Cuando esté, te aviso por acá.",
+      ].join("\n")
+    );
+  } catch (error) {
+    logSafeError("Error en retiro Mercado Pago", error);
+    setSession(to, idleSession(name));
+    await sendWhatsAppMessage(to, humanizeLedgerError(error));
+  }
+}
+
+async function startYieldSupplyFlow(
+  to: string,
+  name: string,
+  amount: number | null
+): Promise<void> {
+  if (amount === null) {
+    setSession(to, { step: ConversationStep.AWAITING_YIELD_SUPPLY_AMOUNT, name });
+    await sendWhatsAppMessage(to, ASK_YIELD_SUPPLY_AMOUNT);
+    return;
+  }
+
+  if (amount > MAX_USDC_PER_SEND) {
+    setSession(to, { step: ConversationStep.AWAITING_YIELD_SUPPLY_AMOUNT, name });
+    await sendWhatsAppMessage(
+      to,
+      `Por ahora el máximo es ${MAX_USDC_PER_SEND} dólares. Decime otro monto.`
+    );
+    return;
+  }
+
+  await sendWhatsAppMessage(
+    to,
+    `Perfecto, poniendo ${formatUsdcLabel(amount)} dólares a rendir...`
+  );
+
+  try {
+    const result = await supplyToBlend(to, amount);
+    setSession(to, idleSession(name));
+    await sendWhatsAppMessage(
+      to,
+      [
+        `Listo 📈 Ya dejamos ${formatUsdcLabel(amount)} dólares rindiendo.`,
+        `Ahí tenés aproximadamente ${result.valueUsdc} dólares.`,
+      ].join("\n")
+    );
+  } catch (error) {
+    logSafeError("Error al poner a rendir", error);
+    setSession(to, idleSession(name));
+    await sendWhatsAppMessage(to, humanizeLedgerError(error));
+  }
+}
+
+async function startYieldWithdrawFlow(
+  to: string,
+  name: string,
+  amount: number | null
+): Promise<void> {
+  if (amount === null) {
+    setSession(to, {
+      step: ConversationStep.AWAITING_YIELD_WITHDRAW_AMOUNT,
+      name,
+    });
+    await sendWhatsAppMessage(to, ASK_YIELD_WITHDRAW_AMOUNT);
+    return;
+  }
+
+  await sendWhatsAppMessage(
+    to,
+    `Sacando ${formatUsdcLabel(amount)} dólares de lo que está rindiendo...`
+  );
+
+  try {
+    const result = await withdrawFromBlend(to, amount);
+    setSession(to, idleSession(name));
+    await sendWhatsAppMessage(
+      to,
+      [
+        `Listo. Ya volvieron ${formatUsdcLabel(amount)} dólares a tu saldo.`,
+        `Te quedan aproximadamente ${result.valueUsdc} dólares rindiendo.`,
+      ].join("\n")
+    );
+  } catch (error) {
+    logSafeError("Error al sacar de rendir", error);
+    setSession(to, idleSession(name));
+    await sendWhatsAppMessage(to, humanizeLedgerError(error));
+  }
+}
+
+async function handleYieldPosition(to: string, name: string): Promise<void> {
+  setSession(to, idleSession(name));
+  try {
+    const position = await getBlendPosition(to);
+    await sendWhatsAppMessage(
+      to,
+      `Lo que tenés rindiendo ahora vale unos ${position.currentValueUsdc} dólares.`
+    );
+  } catch (error) {
+    logSafeError("Error al consultar rendimiento", error);
+    await sendWhatsAppMessage(to, humanizeLedgerError(error));
+  }
+}
+
 async function dispatchIntent(
   to: string,
   name: string,
@@ -304,6 +455,18 @@ async function dispatchIntent(
       return;
     case "withdraw":
       await startWithdrawFlow(to, name, intent.amount, intent.partner);
+      return;
+    case "withdraw_mp":
+      await startMercadoPagoFlow(to, name, intent.amount);
+      return;
+    case "yield_supply":
+      await startYieldSupplyFlow(to, name, intent.amount);
+      return;
+    case "yield_position":
+      await handleYieldPosition(to, name);
+      return;
+    case "yield_withdraw":
+      await startYieldWithdrawFlow(to, name, intent.amount);
       return;
     case "withdraw_status":
       await handleWithdrawStatus(to, name);
@@ -350,7 +513,11 @@ export async function handleIncomingWhatsAppMessage(
   if (
     intent.type === "balance" ||
     intent.type === "menu" ||
-    intent.type === "withdraw_status"
+    intent.type === "withdraw_status" ||
+    intent.type === "withdraw_mp" ||
+    intent.type === "yield_supply" ||
+    intent.type === "yield_position" ||
+    intent.type === "yield_withdraw"
   ) {
     await dispatchIntent(from, session.name, text);
     return;
@@ -426,6 +593,45 @@ export async function handleIncomingWhatsAppMessage(
     }
 
     await executeCashWithdrawal(from, session.name, amount, partner);
+    return;
+  }
+
+  if (session.step === ConversationStep.AWAITING_MP_AMOUNT) {
+    const amount = extractUsdAmount(text);
+    if (amount === null) {
+      await sendWhatsAppMessage(
+        from,
+        `No vi un monto en lo que escribiste. ${ASK_MP_AMOUNT}`
+      );
+      return;
+    }
+    await startMercadoPagoFlow(from, session.name, amount);
+    return;
+  }
+
+  if (session.step === ConversationStep.AWAITING_YIELD_SUPPLY_AMOUNT) {
+    const amount = extractUsdAmount(text);
+    if (amount === null) {
+      await sendWhatsAppMessage(
+        from,
+        `No vi un monto en lo que escribiste. ${ASK_YIELD_SUPPLY_AMOUNT}`
+      );
+      return;
+    }
+    await startYieldSupplyFlow(from, session.name, amount);
+    return;
+  }
+
+  if (session.step === ConversationStep.AWAITING_YIELD_WITHDRAW_AMOUNT) {
+    const amount = extractUsdAmount(text);
+    if (amount === null) {
+      await sendWhatsAppMessage(
+        from,
+        `No vi un monto en lo que escribiste. ${ASK_YIELD_WITHDRAW_AMOUNT}`
+      );
+      return;
+    }
+    await startYieldWithdrawFlow(from, session.name, amount);
     return;
   }
 

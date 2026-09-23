@@ -12,6 +12,7 @@ import {
   rpc,
   scValToNative,
 } from "@stellar/stellar-sdk";
+import { signStellarTransaction } from "../wallet/stellar-signer";
 
 export const USDC_DECIMALS = 7;
 export const USDC_SCALE = 10n ** BigInt(USDC_DECIMALS);
@@ -47,7 +48,8 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
 
 export interface UsdcWallet {
   publicKey: string;
-  secretKey: string;
+  secretKey?: string;
+  privyWalletId?: string;
 }
 
 export interface UsdcTransferResult {
@@ -209,7 +211,7 @@ export async function ensureUsdcTrustline(wallet: UsdcWallet): Promise<void> {
       .setTimeout(60)
       .build();
 
-    tx.sign(Keypair.fromSecret(wallet.secretKey));
+    await signStellarTransaction(wallet, tx);
     try {
       await horizon.submitTransaction(tx);
     } catch (error) {
@@ -230,7 +232,6 @@ async function transferUsdcViaHorizon(
   toPublicKey: string,
   amount: number
 ): Promise<string> {
-  const signer = Keypair.fromSecret(from.secretKey);
   const horizon = getHorizonServer();
   const source = await horizon.loadAccount(from.publicKey);
   const asset = getUsdcAsset();
@@ -249,7 +250,7 @@ async function transferUsdcViaHorizon(
     .setTimeout(60)
     .build();
 
-  tx.sign(signer);
+  await signStellarTransaction(from, tx);
   const result = await horizon.submitTransaction(tx);
   return result.hash;
 }
@@ -259,7 +260,6 @@ async function transferUsdcViaSac(
   toPublicKey: string,
   stroops: bigint
 ): Promise<string> {
-  const signer = Keypair.fromSecret(from.secretKey);
   const server = getRpcServer();
   const account = await server.getAccount(from.publicKey);
   const contract = new Contract(getUsdcSacId());
@@ -280,7 +280,7 @@ async function transferUsdcViaSac(
     .build();
 
   const prepared = await server.prepareTransaction(built);
-  prepared.sign(signer);
+  await signStellarTransaction(from, prepared);
 
   const sent = await server.sendTransaction(prepared);
   if (sent.status === "ERROR") {

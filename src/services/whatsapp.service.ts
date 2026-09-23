@@ -10,7 +10,7 @@ export const WELCOME_VIDEO_CAPTION =
   "¡Hola! 👋 Bienvenido a Senda. Te ayudo a enviar y recibir USDC al toque, sin vueltas.";
 
 export const WELCOME_MENU_TEXT =
-  "¿En qué te ayudo?\n\nEscribime o mandame una nota de voz. Por ejemplo:\n• «cuánto tengo» o «ver mis USDC»\n• «quiero mandar 20 dólares a mi mamá»\n• «retirar 15 en MoneyGram» o «sacar efectivo»";
+  "¿En qué te ayudo?\n\nEscribime o mandame una nota de voz. Por ejemplo:\n• «cuánto tengo» o «ver mis USDC»\n• «quiero mandar 20 dólares a mi mamá»\n• «retirar 15 en MoneyGram» o «sacar efectivo»\n• «retirar 20 a Mercado Pago»\n• «poner 10 a rendir» o «cuánto tengo rindiendo»";
 
 export interface WhatsAppMessageResponse {
   messaging_product: "whatsapp";

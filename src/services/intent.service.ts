@@ -5,7 +5,11 @@ export type UserIntent =
   | { type: "balance" }
   | { type: "send"; amount: number | null }
   | { type: "withdraw"; amount: number | null; partner: OfframpPartnerId | null }
+  | { type: "withdraw_mp"; amount: number | null }
   | { type: "withdraw_status" }
+  | { type: "yield_supply"; amount: number | null }
+  | { type: "yield_position" }
+  | { type: "yield_withdraw"; amount: number | null }
   | { type: "menu" }
   | { type: "option"; option: "1" | "2" }
   | { type: "unknown" };
@@ -57,6 +61,18 @@ const CASH_RE =
 
 const WITHDRAW_STATUS_RE =
   /\b(mi\s+codigo|codigo\s+de\s+retiro|donde\s+retiro|donde\s+cobro|mi\s+retiro|orden\s+de\s+retiro)\b/;
+
+const MERCADO_PAGO_RE =
+  /\b(mercado\s*pago|mercadopago|cvu|alias|retirar a mi cuenta|a mi cuenta)\b/;
+
+const YIELD_SUPPLY_RE =
+  /\b(poner a rendir|invertir|rendir|hacer rendir|meter a rendir)\b/;
+
+const YIELD_POSITION_RE =
+  /\b(cuanto tengo rindiendo|cuanto estoy rindiendo|mi rendimiento|lo que rinde)\b/;
+
+const YIELD_WITHDRAW_RE =
+  /\b(sacar de rendir|retirar (de )?rendimiento|sacar (el )?rendimiento|dejar de rendir)\b/;
 
 const CURRENCY = "usdc|usd|dolares|dolar|dlls|bucks";
 
@@ -247,6 +263,22 @@ export function classifyIntent(text: string): UserIntent {
   const amount = extractUsdAmount(normalized);
   const partner = extractPartner(normalized);
 
+  if (YIELD_POSITION_RE.test(normalized)) {
+    return { type: "yield_position" };
+  }
+
+  if (YIELD_WITHDRAW_RE.test(normalized)) {
+    return { type: "yield_withdraw", amount };
+  }
+
+  if (YIELD_SUPPLY_RE.test(normalized)) {
+    return { type: "yield_supply", amount };
+  }
+
+  if (MERCADO_PAGO_RE.test(normalized)) {
+    return { type: "withdraw_mp", amount };
+  }
+
   if (WITHDRAW_STATUS_RE.test(normalized)) {
     return { type: "withdraw_status" };
   }
@@ -255,7 +287,7 @@ export function classifyIntent(text: string): UserIntent {
     return { type: "balance" };
   }
 
-  if (hasWithdraw && !hasSend) {
+  if (hasWithdraw && !hasSend && !MERCADO_PAGO_RE.test(normalized)) {
     return { type: "withdraw", amount, partner };
   }
 

@@ -1,0 +1,40 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String          @id @default(cuid())
+  phone            String          @unique
+  privyWalletId    String?
+  stellarPublicKey String
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  transactions     Transaction[]
+  yieldPosition    YieldPosition?
+}
+
+model Transaction {
+  id                 String   @id @default(cuid())
+  phone              String
+  user               User     @relation(fields: [phone], references: [phone])
+  type               String
+  amountUsdc         String
+  status             String
+  txHash             String?
+  sep24TransactionId String?
+  createdAt          DateTime @default(now())
+}
+
+model YieldPosition {
+  id                  String   @id @default(cuid())
+  phone               String   @unique
+  user                User     @relation(fields: [phone], references: [phone])
+  bUsdcBalance        String   @default("0")
+  lastSyncedValueUsdc String   @default("0")
+  updatedAt           DateTime @updatedAt
+}

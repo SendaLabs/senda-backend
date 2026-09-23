@@ -12,6 +12,8 @@ import {
   nativeToScVal,
   rpc,
 } from "@stellar/stellar-sdk";
+import { usePrivyWallets } from "../config/flags";
+import { resolvePrivyAccount } from "../wallet/privy-account";
 import { resolveCustodialAccount } from "./custody.service";
 import {
   ensureUsdcTrustline,
@@ -34,6 +36,7 @@ export interface StellarNetworkConfig {
 export interface CreatedAccount {
   publicKey: string;
   secretKey: string;
+  privyWalletId?: string;
 }
 
 export interface CreditOnChainResult {
@@ -179,6 +182,16 @@ function formatXlmAmount(amount: number): string {
 export async function getOrCreateUserAccount(
   phone: string
 ): Promise<CreatedAccount> {
+  if (usePrivyWallets()) {
+    try {
+      const account = await resolvePrivyAccount(phone);
+      await ensureFunded(account.publicKey);
+      return account;
+    } catch (error) {
+      console.error("Privy wallet, fallback a custodia local:", error);
+    }
+  }
+
   const { account } = resolveCustodialAccount(phone);
   await ensureFunded(account.publicKey);
   return account;
