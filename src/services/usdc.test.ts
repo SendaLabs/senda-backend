@@ -8,6 +8,7 @@ import {
   toUsdcStroops,
 } from "./usdc.service";
 import { assertNetworkConsistency, getNetworkConfig } from "./stellar.service";
+import { classifyIntent } from "./intent.service";
 
 test("convierte USDC a stroops sin float sucio", () => {
   assert.equal(toUsdcStroops("10.5"), 105000000n);
@@ -65,6 +66,12 @@ test("rechaza testnet con passphrase de public", () => {
   assert.throws(() => getNetworkConfig(), /no coincide/);
   process.env.STELLAR_NETWORK = previousNetwork;
   process.env.STELLAR_NETWORK_PASSPHRASE = previousPass;
+});
+
+test("un mensaje que solo tiene 20 no es un envío", () => {
+  assert.equal(classifyIntent("20").type, "unknown");
+  assert.equal(classifyIntent("hola 20").type, "unknown");
+  assert.equal(classifyIntent("mandar 20").type, "send");
 });
 
 test("testnet no acepta Horizon de public", () => {

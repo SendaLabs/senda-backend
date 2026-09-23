@@ -38,14 +38,14 @@ NLU: cualquier número plausible ≤ 500 en un mensaje se clasifica como `send` 
 
 ## Checklist
 
-- [ ] Idempotencia: guardar `message.id` → `txHash` y no volver a acreditar el mismo id.
-- [ ] Lock por `phone` mientras corre `creditUserOnTestnet` / offramp / Blend / SEP-24.
-- [ ] Rate limit (p. ej. N créditos / hora / teléfono y un techo diario de la operativa).
-- [ ] Rechazar crédito si `STELLAR_NETWORK` es `public` hasta que el producto lo habilite explícito.
-- [ ] No recortar montos en silencio: si supera el máximo, error al caller (el bot ya avisa en conversación).
-- [ ] No tratar un número suelto como `send` salvo que haya verbo de envío o el usuario esté en `AWAITING_USD_AMOUNT`.
-- [ ] Métricas/alertas cuando la operativa baja de un umbral de USDC/XLM.
-- [ ] Tests: dos llamadas concurrentes con el mismo `message.id` → una sola `transferUsdc`.
+- [x] Idempotencia: guardar `message.id` → `txHash` y no volver a acreditar el mismo id.
+- [x] Lock por `phone` mientras corre `creditUserOnTestnet` / offramp / Blend / SEP-24.
+- [x] Rate limit (p. ej. N créditos / hora / teléfono y un techo diario de la operativa).
+- [x] Rechazar crédito si `STELLAR_NETWORK` es `public` hasta que el producto lo habilite explícito.
+- [x] No recortar montos en silencio: si supera el máximo, error al caller (el bot ya avisa en conversación).
+- [x] No tratar un número suelto como `send` salvo que haya verbo de envío o el usuario esté en `AWAITING_USD_AMOUNT`.
+- [x] Métricas/alertas cuando la operativa baja de un umbral de USDC/XLM.
+- [x] Tests: dos llamadas concurrentes con el mismo `message.id` → una sola `transferUsdc`.
 
 ## Criterios de aceptación
 

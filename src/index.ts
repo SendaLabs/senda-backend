@@ -249,7 +249,12 @@ async function handleOneIncoming(incoming: IncomingWhatsAppMessage): Promise<voi
       return;
     }
 
-    await handleIncomingWhatsAppMessage(incoming.from, incoming.name, text);
+    await handleIncomingWhatsAppMessage(
+      incoming.from,
+      incoming.name,
+      text,
+      incoming.messageId
+    );
   } catch (error) {
     logSafeError("Webhook: no se pudo responder al usuario", error);
     if (error instanceof WhatsAppSendError) {
