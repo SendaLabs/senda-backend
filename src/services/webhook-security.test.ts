@@ -61,3 +61,31 @@ test("GET de verificación exige VERIFY_TOKEN y no acepta undefined===undefined"
     process.env.VERIFY_TOKEN = previous;
   }
 });
+
+test("logSafeError no imprime Authorization ni seeds", async () => {
+  const { AxiosError } = await import("axios");
+  const { logSafeError } = await import("./whatsapp.service");
+  const lines: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => {
+    lines.push(args.map(String).join(" "));
+  };
+  try {
+    const error = new AxiosError("boom");
+    error.response = {
+      status: 400,
+      data: { error: { message: "bad", code: 100 } },
+      headers: {},
+      statusText: "Bad Request",
+      config: { headers: { Authorization: "Bearer SECRETTOKEN" } } as never,
+    };
+    error.config = {
+      headers: { Authorization: "Bearer SECRETTOKEN" },
+    } as never;
+    logSafeError("test-meta", error);
+    const dumped = lines.join("\n");
+    assert.doesNotMatch(dumped, /SECRETTOKEN|Bearer|Authorization/i);
+  } finally {
+    console.error = original;
+  }
+});

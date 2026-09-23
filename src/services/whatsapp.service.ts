@@ -1,6 +1,8 @@
 import { readFile } from "fs/promises";
 import path from "path";
 import axios, { isAxiosError } from "axios";
+import { redactSecrets } from "./file-vault.service";
+import { hashWhatsAppSender } from "./webhook-security.service";
 import { getWhatsAppUserId } from "./whatsapp.recipients";
 
 const GRAPH_API_VERSION = process.env.WHATSAPP_API_VERSION ?? "v22.0";
@@ -104,7 +106,9 @@ function summarizeMetaError(error: unknown): {
 export function logSafeError(scope: string, error: unknown): void {
   if (error instanceof WhatsAppSendError) {
     console.error(
-      `${scope}: WhatsApp ${error.kind} a ${error.to} status=${error.status ?? "?"} code=${error.code ?? "?"} ${error.message}`
+      redactSecrets(
+        `${scope}: WhatsApp ${error.kind} a ${hashWhatsAppSender(error.to)} status=${error.status ?? "?"} code=${error.code ?? "?"} ${error.message}`
+      )
     );
     return;
   }
@@ -112,13 +116,15 @@ export function logSafeError(scope: string, error: unknown): void {
   if (isAxiosError(error)) {
     const summary = summarizeMetaError(error);
     console.error(
-      `${scope}: HTTP ${summary.status ?? "?"} code=${summary.code ?? "?"} ${summary.message}`
+      redactSecrets(
+        `${scope}: HTTP ${summary.status ?? "?"} code=${summary.code ?? "?"} ${summary.message}`
+      )
     );
     return;
   }
 
   if (error instanceof Error) {
-    console.error(`${scope}: ${error.name}: ${error.message}`);
+    console.error(redactSecrets(`${scope}: ${error.name}: ${error.message}`));
     return;
   }
 

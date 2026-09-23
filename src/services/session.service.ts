@@ -1,4 +1,9 @@
+import path from "path";
 import type { OfframpPartnerId } from "./offramp.store";
+import { getDataDir } from "./data-dir";
+import { hashWhatsAppSender } from "./webhook-security.service";
+import { normalizePhoneIdentity } from "./identity.service";
+import { mutateJsonFile, readJsonFile } from "./json-store";
 
 export const ConversationStep = {
   AWAITING_MENU_OPTION: "AWAITING_MENU_OPTION",
@@ -20,18 +25,41 @@ export interface ConversationSession {
   pendingPartner?: OfframpPartnerId;
 }
 
+type SessionStore = Record<string, ConversationSession>;
+
 const sessions = new Map<string, ConversationSession>();
 
+function sessionsPath(): string {
+  return path.join(getDataDir(), "sessions.json");
+}
+
+function sessionKey(phone: string): string {
+  return normalizePhoneIdentity(phone);
+}
+
+function hydrateFromDisk(phone: string): ConversationSession | undefined {
+  const stored = readJsonFile<SessionStore>(sessionsPath(), {})[sessionKey(phone)];
+  if (stored) {
+    sessions.set(sessionKey(phone), stored);
+  }
+  return stored;
+}
+
 export function getSession(phone: string): ConversationSession | undefined {
-  return sessions.get(phone);
+  return sessions.get(sessionKey(phone)) ?? hydrateFromDisk(phone);
 }
 
 export function setSession(
   phone: string,
   session: ConversationSession
 ): ConversationSession {
-  sessions.set(phone, session);
-  console.log(`Sesión ${phone}: paso ${session.step}`);
+  const key = sessionKey(phone);
+  sessions.set(key, session);
+  console.log(`Sesión ${hashWhatsAppSender(phone)}: paso ${session.step}`);
+  void mutateJsonFile<SessionStore>(sessionsPath(), {}, (store) => {
+    store[key] = session;
+    return store;
+  });
   return session;
 }
 

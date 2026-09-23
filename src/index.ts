@@ -2,7 +2,7 @@ import path from "path";
 import express, { Request, Response } from "express";
 import dotenv from "dotenv";
 import { handleIncomingWhatsAppMessage } from "./services/conversation.service";
-import { humanizeLedgerError } from "./services/ledger-error.service";
+import { replyUserError } from "./services/ledger-error.service";
 import { claimProcessedMessage } from "./services/processed-messages.store";
 import { transcribeWhatsAppAudio } from "./services/transcription.service";
 import { rememberWhatsAppRecipient } from "./services/whatsapp.recipients";
@@ -266,7 +266,7 @@ async function handleOneIncoming(incoming: IncomingWhatsAppMessage): Promise<voi
         incoming.from,
         incoming.kind === "audio"
           ? "No pude escuchar esa nota ahora. ¿Me lo escribís?"
-          : humanizeLedgerError(error)
+          : replyUserError(error)
       );
     } catch (replyError) {
       logSafeError("Webhook: tampoco se pudo avisar al usuario", replyError);
