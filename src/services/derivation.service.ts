@@ -1,22 +1,13 @@
 import { createHmac, hkdfSync } from "crypto";
 import { Keypair } from "@stellar/stellar-sdk";
+import { getCustodyMasterSecret } from "./custody-secrets.service";
 import { normalizePhoneIdentity } from "./identity.service";
 
 const DERIVATION_SALT = "senda-sep30-v1";
 const RECOVERY_SALT = "senda-sep30-recovery-v1";
 
 function getMasterSecret(): Buffer {
-  const dedicated = process.env.CUSTODY_MASTER_SECRET?.trim();
-  const fallback = process.env.STELLAR_SECRET_KEY?.trim();
-  const raw = dedicated || fallback;
-
-  if (!raw) {
-    throw new Error(
-      "Falta CUSTODY_MASTER_SECRET (o STELLAR_SECRET_KEY) para derivar cuentas"
-    );
-  }
-
-  return Buffer.from(raw, "utf8");
+  return Buffer.from(getCustodyMasterSecret(), "utf8");
 }
 
 function deriveSeed(salt: string, info: string): Buffer {

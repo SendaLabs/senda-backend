@@ -1,38 +1,100 @@
-import fs from "fs";
 import path from "path";
 import type { CustodialAccount } from "./account.types";
+import { getDataDir } from "./data-dir";
+import {
+  decryptString,
+  encryptString,
+  isVaultCiphertext,
+} from "./file-vault.service";
+import { mutateJsonFile, readJsonFile } from "./json-store";
 
-const WALLETS_PATH = path.join(process.cwd(), "data", "wallets.json");
+const WALLETS_PATH = path.join(getDataDir(), "wallets.json");
 
-type WalletStore = Record<string, CustodialAccount>;
+type PersistedWallet = {
+  publicKey: string;
+  privyWalletId?: string;
+  encryptedSecret?: string;
+  secretKey?: string;
+};
 
-function readStore(): WalletStore {
-  try {
-    const raw = fs.readFileSync(WALLETS_PATH, "utf8");
-    return JSON.parse(raw) as WalletStore;
-  } catch {
-    return {};
-  }
+type WalletStore = Record<string, PersistedWallet>;
+
+function walletsPath(): string {
+  return path.join(getDataDir(), "wallets.json");
 }
 
-function writeStore(store: WalletStore): void {
-  fs.mkdirSync(path.dirname(WALLETS_PATH), { recursive: true });
-  fs.writeFileSync(WALLETS_PATH, JSON.stringify(store, null, 2), {
-    encoding: "utf8",
-    mode: 0o600,
-  });
+function stripPlainSecret(record: PersistedWallet): PersistedWallet {
+  const next: PersistedWallet = {
+    publicKey: record.publicKey,
+  };
+  if (record.privyWalletId) {
+    next.privyWalletId = record.privyWalletId;
+  }
+  if (record.encryptedSecret) {
+    next.encryptedSecret = record.encryptedSecret;
+  }
+  return next;
+}
+
+function hydrateSecret(record: PersistedWallet): string {
+  if (record.encryptedSecret) {
+    return decryptString(record.encryptedSecret);
+  }
+  if (record.secretKey && !isVaultCiphertext(record.secretKey)) {
+    return record.secretKey;
+  }
+  return "";
 }
 
 export function getWalletByPhone(phone: string): CustodialAccount | undefined {
-  return readStore()[phone];
+  const record = readJsonFile<WalletStore>(walletsPath(), {})[phone];
+  if (!record?.publicKey) {
+    return undefined;
+  }
+
+  return {
+    publicKey: record.publicKey,
+    secretKey: hydrateSecret(record),
+    privyWalletId: record.privyWalletId,
+  };
 }
 
-export function saveWallet(
+export async function saveWallet(
   phone: string,
-  wallet: CustodialAccount
-): CustodialAccount {
-  const store = readStore();
-  store[phone] = wallet;
-  writeStore(store);
-  return wallet;
+  wallet: CustodialAccount,
+  options?: { persistSecret?: boolean }
+): Promise<CustodialAccount> {
+  await mutateJsonFile<WalletStore>(walletsPath(), {}, (store) => {
+    const previous = store[phone];
+    const persistSecret = options?.persistSecret === true;
+    let encryptedSecret: string | undefined;
+
+    if (persistSecret && wallet.secretKey) {
+      encryptedSecret = isVaultCiphertext(wallet.secretKey)
+        ? wallet.secretKey
+        : encryptString(wallet.secretKey);
+    } else if (previous?.encryptedSecret && persistSecret) {
+      encryptedSecret = previous.encryptedSecret;
+    }
+
+    store[phone] = stripPlainSecret({
+      publicKey: wallet.publicKey,
+      privyWalletId: wallet.privyWalletId,
+      encryptedSecret,
+    });
+    return store;
+  });
+
+  return {
+    publicKey: wallet.publicKey,
+    secretKey: wallet.secretKey,
+    privyWalletId: wallet.privyWalletId,
+  };
+}
+
+export function walletStoreContainsPlainSeeds(filePath = WALLETS_PATH): boolean {
+  const store = readJsonFile<WalletStore>(filePath, {});
+  return Object.values(store).some((record) =>
+    Boolean(record.secretKey && /^S[A-Z2-7]{55}$/.test(record.secretKey))
+  );
 }

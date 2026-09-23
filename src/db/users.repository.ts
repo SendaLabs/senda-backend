@@ -1,5 +1,6 @@
-import fs from "fs";
 import path from "path";
+import { getDataDir } from "../services/data-dir";
+import { mutateJsonFile, readJsonFile } from "../services/json-store";
 
 export interface StoredUser {
   phone: string;
@@ -31,26 +32,16 @@ interface DbFile {
   yieldPositions: StoredYieldPosition[];
 }
 
-const DB_PATH = path.join(process.cwd(), "data", "senda-db.json");
+function dbPath(): string {
+  return path.join(getDataDir(), "senda-db.json");
+}
 
 function emptyDb(): DbFile {
   return { users: [], transactions: [], yieldPositions: [] };
 }
 
 function readDb(): DbFile {
-  try {
-    return JSON.parse(fs.readFileSync(DB_PATH, "utf8")) as DbFile;
-  } catch {
-    return emptyDb();
-  }
-}
-
-function writeDb(db: DbFile): void {
-  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-  fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), {
-    encoding: "utf8",
-    mode: 0o600,
-  });
+  return readJsonFile<DbFile>(dbPath(), emptyDb());
 }
 
 export async function findUserByPhone(
@@ -64,15 +55,16 @@ export async function upsertPrivyUser(
   privyWalletId: string,
   stellarPublicKey: string
 ): Promise<StoredUser> {
-  const db = readDb();
   const next: StoredUser = { phone, privyWalletId, stellarPublicKey };
-  const index = db.users.findIndex((user) => user.phone === phone);
-  if (index >= 0) {
-    db.users[index] = next;
-  } else {
-    db.users.push(next);
-  }
-  writeDb(db);
+  await mutateJsonFile<DbFile>(dbPath(), emptyDb(), (db) => {
+    const index = db.users.findIndex((user) => user.phone === phone);
+    if (index >= 0) {
+      db.users[index] = next;
+    } else {
+      db.users.push(next);
+    }
+    return db;
+  });
   return next;
 }
 
@@ -95,14 +87,15 @@ export async function createTransaction(input: {
   txHash?: string;
   sep24TransactionId?: string;
 }): Promise<StoredTransaction> {
-  const db = readDb();
   const row: StoredTransaction = {
     id: `tx_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     createdAt: new Date().toISOString(),
     ...input,
   };
-  db.transactions.unshift(row);
-  writeDb(db);
+  await mutateJsonFile<DbFile>(dbPath(), emptyDb(), (db) => {
+    db.transactions.unshift(row);
+    return db;
+  });
   return row;
 }
 
@@ -111,18 +104,19 @@ export async function updateTransactionStatus(
   status: string,
   txHash?: string
 ): Promise<void> {
-  const db = readDb();
-  const row = db.transactions.find(
-    (item) => item.sep24TransactionId === sep24TransactionId
-  );
-  if (!row) {
-    return;
-  }
-  row.status = status;
-  if (txHash) {
-    row.txHash = txHash;
-  }
-  writeDb(db);
+  await mutateJsonFile<DbFile>(dbPath(), emptyDb(), (db) => {
+    const row = db.transactions.find(
+      (item) => item.sep24TransactionId === sep24TransactionId
+    );
+    if (!row) {
+      return db;
+    }
+    row.status = status;
+    if (txHash) {
+      row.txHash = txHash;
+    }
+    return db;
+  });
 }
 
 export async function upsertYieldPosition(
@@ -130,20 +124,21 @@ export async function upsertYieldPosition(
   bUsdcBalance: string,
   lastSyncedValueUsdc: string
 ): Promise<void> {
-  const db = readDb();
   const next: StoredYieldPosition = {
     phone,
     bUsdcBalance,
     lastSyncedValueUsdc,
     updatedAt: new Date().toISOString(),
   };
-  const index = db.yieldPositions.findIndex((item) => item.phone === phone);
-  if (index >= 0) {
-    db.yieldPositions[index] = next;
-  } else {
-    db.yieldPositions.push(next);
-  }
-  writeDb(db);
+  await mutateJsonFile<DbFile>(dbPath(), emptyDb(), (db) => {
+    const index = db.yieldPositions.findIndex((item) => item.phone === phone);
+    if (index >= 0) {
+      db.yieldPositions[index] = next;
+    } else {
+      db.yieldPositions.push(next);
+    }
+    return db;
+  });
 }
 
 export async function findYieldPosition(

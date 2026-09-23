@@ -31,62 +31,67 @@ function buildIdentityRecord(
   };
 }
 
-function resolveSecret(
+async function resolveSecret(
   phone: string,
   record: Sep30IdentityRecord
-): CustodialAccount {
+): Promise<CustodialAccount> {
   if (record.source === "derived") {
     const derived = accountFromDerivedPhone(phone);
     if (derived.publicKey !== record.account) {
-      throw new Error("La cuenta derivada no coincide con el registro SEP-30");
+      throw new Error(
+        "CUSTODY_MASTER_SECRET no coincide con la cuenta persistida. No se cambia la dirección en silencio."
+      );
     }
-    saveWallet(phone, derived);
+    await saveWallet(phone, derived, { persistSecret: false });
     return derived;
   }
 
   const stored = getWalletByPhone(phone);
-  if (!stored || stored.publicKey !== record.account) {
+  if (!stored || stored.publicKey !== record.account || !stored.secretKey) {
     throw new Error("No se pudo recuperar la clave de la cuenta legado");
   }
+  await saveWallet(phone, stored, { persistSecret: true });
   return stored;
 }
 
-export function registerCustodialAccount(
+export async function registerCustodialAccount(
   phone: string,
   account: CustodialAccount,
   source: Sep30IdentityRecord["source"]
-): Sep30IdentityRecord {
-  saveWallet(phone, account);
+): Promise<Sep30IdentityRecord> {
+  await saveWallet(phone, account, {
+    persistSecret: source === "legacy",
+  });
   return saveIdentityRecord(phone, buildIdentityRecord(phone, account, source));
 }
 
-export function resolveCustodialAccount(phone: string): {
+export async function resolveCustodialAccount(phone: string): Promise<{
   account: CustodialAccount;
   identity: Sep30IdentityRecord;
   recovered: boolean;
-} {
+}> {
   const existingIdentity = getIdentityRecord(phone);
   if (existingIdentity) {
-    const account = resolveSecret(phone, existingIdentity);
-    const identity = markIdentityRecovered(phone) ?? existingIdentity;
+    const account = await resolveSecret(phone, existingIdentity);
+    const identity = (await markIdentityRecovered(phone)) ?? existingIdentity;
     return { account, identity, recovered: true };
   }
 
   const legacy = getWalletByPhone(phone);
-  if (legacy) {
-    const identity = registerCustodialAccount(phone, legacy, "legacy");
+  if (legacy?.secretKey) {
+    const identity = await registerCustodialAccount(phone, legacy, "legacy");
     return { account: legacy, identity, recovered: true };
   }
 
   const derived = accountFromDerivedPhone(phone);
-  const identity = registerCustodialAccount(phone, derived, "derived");
+  const identity = await registerCustodialAccount(phone, derived, "derived");
   return { account: derived, identity, recovered: false };
 }
 
-export function recoverAccountByWhatsApp(phone: string): {
+export async function recoverAccountByWhatsApp(phone: string): Promise<{
   account: CustodialAccount;
   identity: Sep30IdentityRecord;
-} {
-  const resolved = resolveCustodialAccount(phone);
+}> {
+  const resolved = await resolveCustodialAccount(phone);
   return { account: resolved.account, identity: resolved.identity };
 }

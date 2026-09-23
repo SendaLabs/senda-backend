@@ -37,14 +37,14 @@ Privy tampoco aísla del todo: `resolvePrivyAccount` guarda `privyWalletId` y, s
 
 ## Checklist
 
-- [ ] Exigir `CUSTODY_MASTER_SECRET` propio; no caer a `STELLAR_SECRET_KEY`. Fallar el boot si falta en cualquier entorno que mueva fondos.
-- [ ] Dejar de persistir `secretKey` en claro. Si la cuenta es derivada, recalcular en memoria; no escribir seed a disco.
-- [ ] Cifrar en reposo lo que sí haya que guardar (wallets legado, códigos de pickup) con una clave de archivo distinta.
-- [ ] Separar roles: clave operativa ≠ master de derivación ≠ vault de offramp.
-- [ ] Serializar escrituras a `data/*.json` (mutex/queue) o migrar a SQLite/Prisma de verdad (`schema.prisma` ya existe y no se usa).
-- [ ] Rotar `CUSTODY_MASTER_SECRET` documentado: las cuentas ya derivadas no deben “cambiar de dirección” en silencio.
-- [ ] Asegurar que `.gitignore` cubre `data/` (ya está) y que ningún script de deploy las copia a la imagen.
-- [ ] Revisar que `logSafeError` / `console.error` no impriman `secretKey` al serializar cuentas.
+- [x] Exigir `CUSTODY_MASTER_SECRET` propio; no caer a `STELLAR_SECRET_KEY`. Fallar el boot si falta en cualquier entorno que mueva fondos.
+- [x] Dejar de persistir `secretKey` en claro. Si la cuenta es derivada, recalcular en memoria; no escribir seed a disco.
+- [x] Cifrar en reposo lo que sí haya que guardar (wallets legado, códigos de pickup) con una clave de archivo distinta.
+- [x] Separar roles: clave operativa ≠ master de derivación ≠ vault de offramp.
+- [x] Serializar escrituras a `data/*.json` (mutex/queue) o migrar a SQLite/Prisma de verdad (`schema.prisma` ya existe y no se usa).
+- [x] Rotar `CUSTODY_MASTER_SECRET` documentado: las cuentas ya derivadas no deben “cambiar de dirección” en silencio.
+- [x] Asegurar que `.gitignore` cubre `data/` (ya está) y que ningún script de deploy las copia a la imagen.
+- [x] Revisar que `logSafeError` / `console.error` no impriman `secretKey` al serializar cuentas.
 
 ## Criterios de aceptación
 

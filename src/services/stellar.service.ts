@@ -192,7 +192,7 @@ export async function getOrCreateUserAccount(
     }
   }
 
-  const { account } = resolveCustodialAccount(phone);
+  const { account } = await resolveCustodialAccount(phone);
   await ensureFunded(account.publicKey);
   return account;
 }

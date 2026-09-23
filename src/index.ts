@@ -12,6 +12,7 @@ import {
   resolveWebhookChallenge,
   verifyMetaSignature,
 } from "./services/webhook-security.service";
+import { assertRuntimeSecrets } from "./services/custody-secrets.service";
 import {
   logSafeError,
   sendWhatsAppMessage,
@@ -286,6 +287,13 @@ app.post("/webhook", (req: Request, res: Response) => {
   res.sendStatus(200);
   void processIncomingWebhook(req.body);
 });
+
+try {
+  assertRuntimeSecrets();
+} catch (error) {
+  console.error(error instanceof Error ? error.message : "Config inválida");
+  process.exit(1);
+}
 
 app.listen(port, () => {
   console.log(`Senda backend escuchando en http://localhost:${port}`);

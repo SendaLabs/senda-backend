@@ -1,60 +1,48 @@
-import fs from "fs";
 import path from "path";
 import type { Sep30IdentityRecord } from "./account.types";
+import { getDataDir } from "./data-dir";
 import { identityKey } from "./identity.service";
-
-const IDENTITIES_PATH = path.join(process.cwd(), "data", "identities.json");
+import { mutateJsonFile, readJsonFile } from "./json-store";
 
 type IdentityStore = Record<string, Sep30IdentityRecord>;
 
-function readStore(): IdentityStore {
-  try {
-    const raw = fs.readFileSync(IDENTITIES_PATH, "utf8");
-    return JSON.parse(raw) as IdentityStore;
-  } catch {
-    return {};
-  }
-}
-
-function writeStore(store: IdentityStore): void {
-  fs.mkdirSync(path.dirname(IDENTITIES_PATH), { recursive: true });
-  fs.writeFileSync(IDENTITIES_PATH, JSON.stringify(store, null, 2), {
-    encoding: "utf8",
-    mode: 0o600,
-  });
+function identitiesPath(): string {
+  return path.join(getDataDir(), "identities.json");
 }
 
 export function getIdentityRecord(
   phone: string
 ): Sep30IdentityRecord | undefined {
-  return readStore()[identityKey(phone)];
+  return readJsonFile<IdentityStore>(identitiesPath(), {})[identityKey(phone)];
 }
 
-export function saveIdentityRecord(
+export async function saveIdentityRecord(
   phone: string,
   record: Sep30IdentityRecord
-): Sep30IdentityRecord {
-  const store = readStore();
-  store[identityKey(phone)] = record;
-  writeStore(store);
+): Promise<Sep30IdentityRecord> {
+  await mutateJsonFile<IdentityStore>(identitiesPath(), {}, (store) => {
+    store[identityKey(phone)] = record;
+    return store;
+  });
   return record;
 }
 
-export function markIdentityRecovered(
+export async function markIdentityRecovered(
   phone: string
-): Sep30IdentityRecord | undefined {
-  const store = readStore();
-  const key = identityKey(phone);
-  const current = store[key];
-  if (!current) {
-    return undefined;
-  }
-
-  const updated: Sep30IdentityRecord = {
-    ...current,
-    lastRecoveredAt: new Date().toISOString(),
-  };
-  store[key] = updated;
-  writeStore(store);
+): Promise<Sep30IdentityRecord | undefined> {
+  let updated: Sep30IdentityRecord | undefined;
+  await mutateJsonFile<IdentityStore>(identitiesPath(), {}, (store) => {
+    const key = identityKey(phone);
+    const current = store[key];
+    if (!current) {
+      return store;
+    }
+    updated = {
+      ...current,
+      lastRecoveredAt: new Date().toISOString(),
+    };
+    store[key] = updated;
+    return store;
+  });
   return updated;
 }
