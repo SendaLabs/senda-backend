@@ -9,7 +9,12 @@ import { mutateJsonFile, readJsonFile } from "./json-store";
 
 export type OfframpPartnerId = "moneygram" | "comercio" | "western_union";
 
-export type OfframpOrderStatus = "pending_pickup" | "completed" | "failed";
+export type OfframpOrderStatus =
+  | "pending_lock"
+  | "pending_pickup"
+  | "needs_reconcile"
+  | "completed"
+  | "failed";
 
 export interface OfframpOrder {
   id: string;
@@ -62,6 +67,14 @@ export function listOfframpOrders(phone: string): OfframpOrder[] {
 
 export function getLatestPendingOrder(phone: string): OfframpOrder | undefined {
   return listOfframpOrders(phone).find(
-    (order) => order.status === "pending_pickup"
+    (order) =>
+      order.status === "pending_pickup" || order.status === "pending_lock"
+  );
+}
+
+export function listOrdersNeedingReconcile(): OfframpOrder[] {
+  return readOrders().filter(
+    (order) =>
+      order.status === "pending_lock" || order.status === "needs_reconcile"
   );
 }

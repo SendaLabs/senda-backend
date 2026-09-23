@@ -39,6 +39,10 @@ export function humanizeLedgerError(error: unknown): string {
     return "Ese envío ya se está procesando. Dame un toque y pedime el saldo.";
   }
 
+  if (/no pude (poner|armar).*rendir|no mandamos nada a la red/.test(raw)) {
+    return "No pude poner esa plata a rendir. Probá de nuevo en un rato.";
+  }
+
   if (
     /budget|resource limit|tx_insufficient_fee|insufficient fee|gas|exceeded.*limit/.test(
       raw

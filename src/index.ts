@@ -13,6 +13,8 @@ import {
   verifyMetaSignature,
 } from "./services/webhook-security.service";
 import { assertRuntimeSecrets } from "./services/custody-secrets.service";
+import { reconcileOfframpOrders } from "./services/offramp.service";
+import { resumePendingSep24Withdrawals } from "./services/sep24-withdraw.service";
 import { assertNetworkConsistency } from "./services/stellar.service";
 import {
   logSafeError,
@@ -304,4 +306,10 @@ try {
 
 app.listen(port, () => {
   console.log(`Senda backend escuchando en http://localhost:${port}`);
+  void reconcileOfframpOrders().catch((error) => {
+    console.error(
+      error instanceof Error ? error.message : "No se pudieron reconciliar retiros"
+    );
+  });
+  void resumePendingSep24Withdrawals();
 });

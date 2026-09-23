@@ -1,13 +1,25 @@
-import { FeeBumpTransaction, Transaction, TransactionBuilder } from "@stellar/stellar-sdk";
-import { getOrCreateUserAccount, getNetworkConfig } from "../services/stellar.service";
+import {
+  FeeBumpTransaction,
+  Transaction,
+  TransactionBuilder,
+} from "@stellar/stellar-sdk";
+import {
+  getNetworkConfig,
+  getOrCreateUserAccount,
+} from "../services/stellar.service";
 import { signStellarTransaction } from "../wallet/stellar-signer";
 
 interface StellarToml {
   WEB_AUTH_ENDPOINT?: string;
   TRANSFER_SERVER_SEP0024?: string;
+  SIGNING_KEY?: string;
+  WEB_AUTH_DOMAIN?: string;
 }
 
-const tomlCache = new Map<string, StellarToml>();
+type CachedToml = { value: StellarToml; expiresAt: number };
+
+const TOML_TTL_MS = 10 * 60 * 1000;
+const tomlCache = new Map<string, CachedToml>();
 
 export function getAnchorHomeDomain(): string {
   return (
@@ -15,12 +27,18 @@ export function getAnchorHomeDomain(): string {
   ).replace(/^https?:\/\//, "");
 }
 
+function assertHttpsUrl(value: string, label: string): void {
+  if (!value.startsWith("https://")) {
+    throw new Error(`${label} del ancla tiene que ser HTTPS`);
+  }
+}
+
 export async function loadAnchorToml(
   homeDomain = getAnchorHomeDomain()
 ): Promise<StellarToml> {
   const cached = tomlCache.get(homeDomain);
-  if (cached) {
-    return cached;
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value;
   }
 
   const response = await fetch(
@@ -33,22 +51,62 @@ export async function loadAnchorToml(
   const text = await response.text();
   const toml: StellarToml = {};
   for (const line of text.split(/\r?\n/)) {
-    const match = line.match(/^(WEB_AUTH_ENDPOINT|TRANSFER_SERVER_SEP0024)\s*=\s*"?([^"]+)"?/);
+    const match = line.match(
+      /^(WEB_AUTH_ENDPOINT|TRANSFER_SERVER_SEP0024|SIGNING_KEY|WEB_AUTH_DOMAIN)\s*=\s*"?([^"]+)"?/
+    );
     if (match?.[1] && match[2]) {
       toml[match[1] as keyof StellarToml] = match[2].trim();
     }
   }
-  tomlCache.set(homeDomain, toml);
+  tomlCache.set(homeDomain, {
+    value: toml,
+    expiresAt: Date.now() + TOML_TTL_MS,
+  });
   return toml;
+}
+
+export function assertSep10Challenge(
+  tx: Transaction,
+  homeDomain: string,
+  signingKey?: string
+): void {
+  if (tx.sequence !== "0") {
+    throw new Error("El desafío SEP-10 tiene que tener sequence 0");
+  }
+  if (signingKey && tx.source !== signingKey) {
+    throw new Error("El desafío SEP-10 no sale del servidor de auth del ancla");
+  }
+  if (tx.operations.length === 0) {
+    throw new Error("El desafío SEP-10 no trae operaciones");
+  }
+
+  const authKey = `${homeDomain} auth`;
+  const sawHomeDomain = tx.operations.some((op) => {
+    if (op.type !== "manageData") {
+      return false;
+    }
+    return String(op.name).toLowerCase() === authKey.toLowerCase();
+  });
+  if (!sawHomeDomain) {
+    throw new Error("El desafío SEP-10 no es de este home domain");
+  }
+
+  for (const op of tx.operations) {
+    if (op.type !== "manageData") {
+      throw new Error("El desafío SEP-10 solo puede tener manageData");
+    }
+  }
 }
 
 export async function getSep10Jwt(phone: string): Promise<string> {
   const user = await getOrCreateUserAccount(phone);
-  const toml = await loadAnchorToml();
+  const homeDomain = getAnchorHomeDomain();
+  const toml = await loadAnchorToml(homeDomain);
   const authUrl = toml.WEB_AUTH_ENDPOINT;
   if (!authUrl) {
     throw new Error("El ancla no publica WEB_AUTH_ENDPOINT");
   }
+  assertHttpsUrl(authUrl, "WEB_AUTH_ENDPOINT");
 
   const challengeUrl = new URL(authUrl);
   challengeUrl.searchParams.set("account", user.publicKey);
@@ -73,6 +131,7 @@ export async function getSep10Jwt(phone: string): Promise<string> {
   if (parsed instanceof FeeBumpTransaction || !(parsed instanceof Transaction)) {
     throw new Error("El desafío SEP-10 no es una transacción simple");
   }
+  assertSep10Challenge(parsed, homeDomain, toml.SIGNING_KEY);
   await signStellarTransaction(user, parsed);
 
   const tokenRes = await fetch(authUrl, {

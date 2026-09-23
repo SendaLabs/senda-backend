@@ -2,23 +2,30 @@ import {
   Address,
   Contract,
   TransactionBuilder,
-  nativeToScVal,
   rpc,
+  scValToNative,
   xdr,
 } from "@stellar/stellar-sdk";
-import { getInclusionFee } from "./fees.service";
 import {
   ensureUserRecord,
   findYieldPosition,
   upsertYieldPosition,
 } from "../db/users.repository";
 import { signStellarTransaction } from "../wallet/stellar-signer";
-import { getOrCreateUserAccount, getNetworkConfig } from "./stellar.service";
-import { getUsdcSacId, toUsdcStroops } from "./usdc.service";
+import { getInclusionFee } from "./fees.service";
+import { getNetworkConfig, getOrCreateUserAccount } from "./stellar.service";
+import {
+  fromUsdcStroops,
+  getUsdcBalance,
+  getUsdcSacId,
+  toUsdcStroops,
+} from "./usdc.service";
 
 const DEFAULT_BLEND_POOL =
   "CCEBVDYM32YNYCVNRXQKDFFPISJJCV557CDZEIRBEE4NCV4KHPQ44HGF";
 
+// Collateral (2/3) y no Supply (0/1): el bot no abre deuda, solo deja USDC
+// como colateral en el pool de Testnet para que rinda.
 const RequestType = {
   SupplyCollateral: 2,
   WithdrawCollateral: 3,
@@ -38,6 +45,57 @@ function rpcServer(): rpc.Server {
   );
 }
 
+function loadBlendSdk(): {
+  PoolContract: new (id: string) => {
+    submit: (args: {
+      from: string;
+      spender: string;
+      to: string;
+      requests: Array<{
+        amount: bigint;
+        request_type: number;
+        address: string;
+      }>;
+    }) => string;
+  };
+  RequestType: { SupplyCollateral: number; WithdrawCollateral: number };
+} {
+  try {
+    return require("@blend-capital/blend-sdk") as ReturnType<typeof loadBlendSdk>;
+  } catch {
+    throw new Error(
+      "No pude armar la operación de Blend. No mandamos nada a la red."
+    );
+  }
+}
+
+export function buildSubmitOperation(
+  userPublicKey: string,
+  stroops: bigint,
+  requestType: number
+): xdr.Operation {
+  const blend = loadBlendSdk();
+  const contract = new blend.PoolContract(getPoolId());
+  return xdr.Operation.fromXDR(
+    contract.submit({
+      from: userPublicKey,
+      spender: userPublicKey,
+      to: userPublicKey,
+      requests: [
+        {
+          amount: stroops,
+          request_type:
+            requestType === RequestType.SupplyCollateral
+              ? blend.RequestType.SupplyCollateral
+              : blend.RequestType.WithdrawCollateral,
+          address: getBlendUsdcId(),
+        },
+      ],
+    }),
+    "base64"
+  );
+}
+
 async function submitBlendRequest(
   phone: string,
   amount: number,
@@ -45,61 +103,24 @@ async function submitBlendRequest(
 ): Promise<string> {
   const user = await getOrCreateUserAccount(phone);
   await ensureUserRecord(phone, user.publicKey);
+  const stroops = toUsdcStroops(amount);
+
+  if (requestType === RequestType.SupplyCollateral) {
+    const available = await getUsdcBalance(user.publicKey);
+    if (available < stroops) {
+      throw new Error("No te alcanza el saldo para poner esa plata a rendir");
+    }
+  }
+
   const server = rpcServer();
   const { networkPassphrase } = getNetworkConfig();
   const account = await server.getAccount(user.publicKey);
-  const pool = new Contract(getPoolId());
-  const stroops = toUsdcStroops(amount);
-
   let operation: xdr.Operation;
   try {
-    const blend = require("@blend-capital/blend-sdk") as {
-      PoolContract: new (id: string) => {
-        submit: (args: {
-          from: string;
-          spender: string;
-          to: string;
-          requests: Array<{
-            amount: bigint;
-            request_type: number;
-            address: string;
-          }>;
-        }) => string;
-      };
-      RequestType: { SupplyCollateral: number; WithdrawCollateral: number };
-    };
-    const contract = new blend.PoolContract(getPoolId());
-    operation = xdr.Operation.fromXDR(
-      contract.submit({
-        from: user.publicKey,
-        spender: user.publicKey,
-        to: user.publicKey,
-        requests: [
-          {
-            amount: stroops,
-            request_type:
-              requestType === RequestType.SupplyCollateral
-                ? blend.RequestType.SupplyCollateral
-                : blend.RequestType.WithdrawCollateral,
-            address: getBlendUsdcId(),
-          },
-        ],
-      }),
-      "base64"
-    );
-  } catch {
-    operation = pool.call(
-      "submit",
-      Address.fromString(user.publicKey).toScVal(),
-      Address.fromString(user.publicKey).toScVal(),
-      Address.fromString(user.publicKey).toScVal(),
-      nativeToScVal([
-        {
-          request_type: requestType,
-          address: getBlendUsdcId(),
-          amount: stroops,
-        },
-      ])
+    operation = buildSubmitOperation(user.publicKey, stroops, requestType);
+  } catch (error) {
+    throw new Error(
+      "No pude armar la operación de Blend. No mandamos nada a la red."
     );
   }
 
@@ -113,30 +134,58 @@ async function submitBlendRequest(
 
   const simulated = await server.simulateTransaction(built);
   if (rpc.Api.isSimulationError(simulated)) {
-    throw new Error("La simulación de Blend rechazó la operación");
+    throw new Error("No pude poner esa plata a rendir");
   }
 
   const prepared = await server.prepareTransaction(built);
   await signStellarTransaction(user, prepared);
   const sent = await server.sendTransaction(prepared);
   if (sent.status === "ERROR" || !sent.hash) {
-    throw new Error("Blend rechazó la operación");
+    throw new Error("No pude poner esa plata a rendir");
   }
-  try {
-    const confirmed = await server.pollTransaction(sent.hash, { attempts: 30 });
-    if (confirmed.status === rpc.Api.GetTransactionStatus.SUCCESS) {
-      return sent.hash;
-    }
-    if (confirmed.status === rpc.Api.GetTransactionStatus.FAILED) {
-      throw new Error("Blend no confirmó la operación");
-    }
-    throw new Error("Blend quedó pendiente. No reenviamos el pago.");
-  } catch (error) {
-    if (error instanceof Error && /pendiente|no confirmó/.test(error.message)) {
-      throw error;
-    }
+  const confirmed = await server.pollTransaction(sent.hash, { attempts: 30 });
+  if (confirmed.status !== rpc.Api.GetTransactionStatus.SUCCESS) {
     throw new Error("Blend quedó pendiente. No reenviamos el pago.");
   }
+  return sent.hash;
+}
+
+async function readOnChainCollateralStroops(publicKey: string): Promise<bigint> {
+  const server = rpcServer();
+  const { networkPassphrase } = getNetworkConfig();
+  const account = await server.getAccount(publicKey);
+  const pool = new Contract(getPoolId());
+  const tx = new TransactionBuilder(account, {
+    fee: await getInclusionFee(),
+    networkPassphrase,
+  })
+    .addOperation(
+      pool.call("get_positions", Address.fromString(publicKey).toScVal())
+    )
+    .setTimeout(30)
+    .build();
+
+  const simulation = await server.simulateTransaction(tx);
+  if (!rpc.Api.isSimulationSuccess(simulation) || !simulation.result?.retval) {
+    throw new Error("No pude leer tu posición en Blend");
+  }
+
+  const native = scValToNative(simulation.result.retval) as {
+    collateral?: Record<string, bigint | number | string>;
+  };
+  const reserve = getBlendUsdcId();
+  const raw =
+    native.collateral?.[reserve] ??
+    Object.values(native.collateral ?? {})[0] ??
+    0;
+  return BigInt(raw);
+}
+
+async function syncYieldFromChain(phone: string, publicKey: string) {
+  const stroops = await readOnChainCollateralStroops(publicKey);
+  const value = fromUsdcStroops(stroops);
+  await upsertYieldPosition(phone, stroops.toString(), value);
+  return { suppliedUsdc: value, currentValueUsdc: value };
 }
 
 export async function supplyToBlend(
@@ -144,10 +193,16 @@ export async function supplyToBlend(
   amount: number
 ): Promise<{ amountUsdc: string; valueUsdc: string }> {
   await submitBlendRequest(phone, amount, RequestType.SupplyCollateral);
-  const current = (await findYieldPosition(phone))?.lastSyncedValueUsdc ?? "0";
-  const next = (Number(current) + amount).toFixed(2);
-  await upsertYieldPosition(phone, next, next);
-  return { amountUsdc: String(amount), valueUsdc: next };
+  const user = await getOrCreateUserAccount(phone);
+  try {
+    const position = await syncYieldFromChain(phone, user.publicKey);
+    return { amountUsdc: fromUsdcStroops(toUsdcStroops(amount)), valueUsdc: position.currentValueUsdc };
+  } catch {
+    return {
+      amountUsdc: fromUsdcStroops(toUsdcStroops(amount)),
+      valueUsdc: fromUsdcStroops(toUsdcStroops(amount)),
+    };
+  }
 }
 
 export async function withdrawFromBlend(
@@ -155,23 +210,32 @@ export async function withdrawFromBlend(
   amount: number
 ): Promise<{ amountUsdc: string; valueUsdc: string }> {
   await submitBlendRequest(phone, amount, RequestType.WithdrawCollateral);
-  const current = Number(
-    (await findYieldPosition(phone))?.lastSyncedValueUsdc ?? "0"
-  );
-  const next = Math.max(0, current - amount).toFixed(2);
-  await upsertYieldPosition(phone, next, next);
-  return { amountUsdc: String(amount), valueUsdc: next };
+  const user = await getOrCreateUserAccount(phone);
+  try {
+    const position = await syncYieldFromChain(phone, user.publicKey);
+    return { amountUsdc: fromUsdcStroops(toUsdcStroops(amount)), valueUsdc: position.currentValueUsdc };
+  } catch {
+    return { amountUsdc: fromUsdcStroops(toUsdcStroops(amount)), valueUsdc: "0" };
+  }
 }
 
 export async function getBlendPosition(phone: string): Promise<{
   suppliedUsdc: string;
   currentValueUsdc: string;
 }> {
-  const stored = await findYieldPosition(phone);
-  const value = stored?.lastSyncedValueUsdc ?? "0";
-  return {
-    suppliedUsdc: stored?.bUsdcBalance ?? "0",
-    currentValueUsdc: value,
-  };
+  const user = await getOrCreateUserAccount(phone);
+  try {
+    return await syncYieldFromChain(phone, user.publicKey);
+  } catch {
+    const stored = await findYieldPosition(phone);
+    if (!stored) {
+      return { suppliedUsdc: "0", currentValueUsdc: "0" };
+    }
+    return {
+      suppliedUsdc: /^\d+$/.test(stored.bUsdcBalance)
+        ? fromUsdcStroops(BigInt(stored.bUsdcBalance))
+        : stored.bUsdcBalance,
+      currentValueUsdc: stored.lastSyncedValueUsdc,
+    };
+  }
 }
-

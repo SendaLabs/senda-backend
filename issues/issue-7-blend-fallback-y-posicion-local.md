@@ -39,14 +39,14 @@ El usuario puede oír “ya dejamos 10 dólares rindiendo” cuando el JSON se a
 
 ## Checklist
 
-- [ ] Quitar el fallback silencioso. Si el SDK no arma la op, fallar con error de negocio.
-- [ ] Tipar `PoolContract.submit` y `RequestType` sin `require` suelto (import ESM/CJS estable).
-- [ ] Antes de supply: saldo USDC, trustline/allowance del reserve correcto.
-- [ ] Leer la posición on-chain (bTokens / collateral) al consultar; el JSON solo como cache.
-- [ ] No usar `Number` para stroops; persistir enteros (i128) o string de stroops.
-- [ ] Copy de error: “no pude poner esa plata a rendir”, sin HostError.
+- [x] Quitar el fallback silencioso. Si el SDK no arma la op, fallar con error de negocio.
+- [x] Tipar `PoolContract.submit` y `RequestType` sin `require` suelto (import ESM/CJS estable).
+- [x] Antes de supply: saldo USDC, trustline/allowance del reserve correcto.
+- [x] Leer la posición on-chain (bTokens / collateral) al consultar; el JSON solo como cache.
+- [x] No usar `Number` para stroops; persistir enteros (i128) o string de stroops.
+- [x] Copy de error: “no pude poner esa plata a rendir”, sin HostError.
 - [ ] Test de integración Testnet: supply 1 USDC → `getBlendPosition` refleja el pool, no `n+1` local.
-- [ ] Documentar qué request type se usa y por qué (collateral vs supply).
+- [x] Documentar qué request type se usa y por qué (collateral vs supply).
 
 ## Criterios de aceptación
 
