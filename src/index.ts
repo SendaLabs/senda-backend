@@ -1,3 +1,4 @@
+import path from "path";
 import express, { Request, Response } from "express";
 import dotenv from "dotenv";
 import { handleIncomingWhatsAppMessage } from "./services/conversation.service";
@@ -32,6 +33,18 @@ app.use(
     },
   })
 );
+
+const WELCOME_VIDEO_FILE = path.join(process.cwd(), "src", "public", "0920.mp4");
+
+app.get("/media/welcome.mp4", (_req: Request, res: Response) => {
+  res.setHeader("Content-Type", "video/mp4");
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.sendFile(WELCOME_VIDEO_FILE, (error) => {
+    if (error && !res.headersSent) {
+      res.sendStatus(404);
+    }
+  });
+});
 
 app.get("/health", (_req: Request, res: Response) => {
   res.json({

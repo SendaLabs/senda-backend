@@ -32,7 +32,7 @@ import {
   sendWhatsAppVideo,
   WELCOME_MENU_TEXT,
   WELCOME_VIDEO_CAPTION,
-  WELCOME_VIDEO_URL,
+  getWelcomeVideoUrl,
 } from "./whatsapp.service";
 
 const ASK_AMOUNT =
@@ -90,7 +90,7 @@ async function sendMenu(to: string, name: string): Promise<void> {
 
 export async function sendWelcomeFlow(to: string, name: string): Promise<void> {
   try {
-    await sendWhatsAppVideo(to, WELCOME_VIDEO_URL, WELCOME_VIDEO_CAPTION);
+    await sendWhatsAppVideo(to, getWelcomeVideoUrl(), WELCOME_VIDEO_CAPTION);
   } catch (error) {
     logSafeError("Webhook: no se pudo enviar el video de bienvenida", error);
   }

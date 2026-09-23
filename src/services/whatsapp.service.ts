@@ -3,8 +3,28 @@ import { getWhatsAppUserId } from "./whatsapp.recipients";
 
 const GRAPH_API_VERSION = process.env.WHATSAPP_API_VERSION ?? "v22.0";
 
-export const WELCOME_VIDEO_URL =
-  "https://files.catbox.moe/75h8v0.mp4";
+const FALLBACK_WELCOME_VIDEO_URL = "https://files.catbox.moe/75h8v0.mp4";
+
+export function getWelcomeVideoUrl(): string {
+  const configured = process.env.WELCOME_VIDEO_URL?.trim();
+  if (configured) {
+    return configured;
+  }
+
+  const base = (
+    process.env.PUBLIC_BASE_URL?.trim() ||
+    process.env.RENDER_EXTERNAL_URL?.trim() ||
+    ""
+  ).replace(/\/$/, "");
+
+  if (base) {
+    return `${base}/media/welcome.mp4`;
+  }
+
+  return FALLBACK_WELCOME_VIDEO_URL;
+}
+
+export const WELCOME_VIDEO_URL = FALLBACK_WELCOME_VIDEO_URL;
 
 export const WELCOME_VIDEO_CAPTION =
   "¡Hola! 👋 Bienvenido a Senda. Te ayudo a enviar y recibir USDC al toque, sin vueltas.";
