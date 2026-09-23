@@ -104,6 +104,23 @@ export function getWhatsAppAccessToken(): string {
   return getWhatsAppConfig().token;
 }
 
+function recipientCandidates(to: string): string[] {
+  const digits = to.replace(/\D/g, "");
+  const candidates = [to, digits];
+
+  if (digits.startsWith("549") && digits.length >= 12) {
+    candidates.push(`54${digits.slice(3)}`);
+  } else if (digits.startsWith("54") && digits.length >= 11) {
+    candidates.push(`549${digits.slice(2)}`);
+  }
+
+  return [...new Set(candidates.filter(Boolean))];
+}
+
+function isRetryableSendCode(code?: number): boolean {
+  return code === 131030 || code === 131026 || code === 133010 || code === 100;
+}
+
 function getWhatsAppConfig(): { token: string; phoneNumberId: string } {
   const token = process.env.WHATSAPP_TOKEN;
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
@@ -119,7 +136,7 @@ function getWhatsAppConfig(): { token: string; phoneNumberId: string } {
   return { token, phoneNumberId };
 }
 
-async function postWhatsAppMessage(
+async function postWhatsAppMessageOnce(
   payload: WhatsAppOutgoingPayload
 ): Promise<WhatsAppMessageResponse> {
   const { token, phoneNumberId } = getWhatsAppConfig();
@@ -151,6 +168,31 @@ async function postWhatsAppMessage(
     logSafeError("WhatsApp", wrapped);
     throw wrapped;
   }
+}
+
+async function postWhatsAppMessage(
+  payload: WhatsAppOutgoingPayload
+): Promise<WhatsAppMessageResponse> {
+  const candidates = recipientCandidates(payload.to);
+  let lastError: WhatsAppSendError | undefined;
+
+  for (const to of candidates) {
+    try {
+      return await postWhatsAppMessageOnce({ ...payload, to });
+    } catch (error) {
+      if (error instanceof WhatsAppSendError && isRetryableSendCode(error.code)) {
+        lastError = error;
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw lastError ?? new WhatsAppSendError({
+    to: payload.to,
+    kind: payload.type,
+    message: "No se pudo enviar el mensaje de WhatsApp",
+  });
 }
 
 export async function sendWhatsAppMessage(

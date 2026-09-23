@@ -47,6 +47,7 @@ interface WhatsAppWebhookPayload {
           wa_id?: string;
         }>;
         messages?: Array<{
+          id?: string;
           from?: string;
           type?: string;
           text?: { body?: string };
@@ -56,58 +57,137 @@ interface WhatsAppWebhookPayload {
             voice?: boolean;
           };
         }>;
+        statuses?: Array<{
+          id?: string;
+          status?: string;
+          recipient_id?: string;
+        }>;
       };
     }>;
   }>;
 }
 
 type IncomingWhatsAppMessage =
-  | { kind: "text"; from: string; name: string; text: string }
+  | {
+      kind: "text";
+      from: string;
+      name: string;
+      text: string;
+      messageId?: string;
+    }
   | {
       kind: "audio";
       from: string;
       name: string;
       mediaId: string;
       mimeType?: string;
+      messageId?: string;
     }
-  | { kind: "unsupported"; from: string; name: string };
+  | { kind: "unsupported"; from: string; name: string; messageId?: string };
 
-function extractIncomingWhatsAppMessage(
+const processedMessageIds = new Map<string, number>();
+const MESSAGE_TTL_MS = 10 * 60 * 1000;
+
+function rememberMessage(id?: string): boolean {
+  if (!id) {
+    return false;
+  }
+
+  const now = Date.now();
+  for (const [knownId, seenAt] of processedMessageIds) {
+    if (now - seenAt > MESSAGE_TTL_MS) {
+      processedMessageIds.delete(knownId);
+    }
+  }
+
+  if (processedMessageIds.has(id)) {
+    return true;
+  }
+
+  processedMessageIds.set(id, now);
+  return false;
+}
+
+function extractIncomingWhatsAppMessages(
   payload: WhatsAppWebhookPayload
-): IncomingWhatsAppMessage | null {
-  const value = payload.entry?.[0]?.changes?.[0]?.value;
-  const message = value?.messages?.[0];
-  const from = message?.from;
-  const name = value?.contacts?.[0]?.profile?.name?.trim() || "amigo";
+): IncomingWhatsAppMessage[] {
+  const incoming: IncomingWhatsAppMessage[] = [];
 
-  if (!from || !message) {
-    return null;
-  }
+  for (const entry of payload.entry ?? []) {
+    for (const change of entry.changes ?? []) {
+      const value = change.value;
+      const statuses = value?.statuses ?? [];
+      const messages = value?.messages ?? [];
 
-  if (message.type === "audio" || message.audio?.id) {
-    const mediaId = message.audio?.id;
-    if (!mediaId) {
-      return { kind: "unsupported", from, name };
+      if (statuses.length && !messages.length) {
+        console.log(
+          `Webhook: status ignorado ${statuses
+            .map((status) => `${status.status ?? "?"}→${status.recipient_id ?? "?"}`)
+            .join(", ")}`
+        );
+        continue;
+      }
+
+      for (const message of messages) {
+        const from = (
+          value?.contacts?.[0]?.wa_id ||
+          message.from ||
+          ""
+        ).replace(/\D/g, "");
+        const name = value?.contacts?.[0]?.profile?.name?.trim() || "amigo";
+
+        if (!from) {
+          continue;
+        }
+
+        if (rememberMessage(message.id)) {
+          console.log(`Webhook: mensaje duplicado ${message.id} ignorado`);
+          continue;
+        }
+
+        console.log(
+          `Webhook: mensaje ${message.id ?? "sin-id"} de ${from} tipo=${message.type ?? "?"}`
+        );
+
+        if (message.type === "audio" || message.audio?.id) {
+          const mediaId = message.audio?.id;
+          incoming.push(
+            mediaId
+              ? {
+                  kind: "audio",
+                  from,
+                  name,
+                  mediaId,
+                  mimeType: message.audio?.mime_type,
+                  messageId: message.id,
+                }
+              : { kind: "unsupported", from, name, messageId: message.id }
+          );
+          continue;
+        }
+
+        if (message.type === "text" || message.text?.body) {
+          incoming.push({
+            kind: "text",
+            from,
+            name,
+            text: message.text?.body?.trim() ?? "",
+            messageId: message.id,
+          });
+          continue;
+        }
+
+        incoming.push({
+          kind: "unsupported",
+          from,
+          name,
+          messageId: message.id,
+        });
+      }
     }
-    return {
-      kind: "audio",
-      from,
-      name,
-      mediaId,
-      mimeType: message.audio?.mime_type,
-    };
   }
 
-  if (message.type === "text" || message.text?.body) {
-    return {
-      kind: "text",
-      from,
-      name,
-      text: message.text?.body?.trim() ?? "",
-    };
-  }
-
-  return { kind: "unsupported", from, name };
+  return incoming;
 }
 
 async function resolveIncomingText(
@@ -142,14 +222,7 @@ async function resolveIncomingText(
   return transcript;
 }
 
-async function processIncomingWebhook(payload: WhatsAppWebhookPayload): Promise<void> {
-  console.log("Webhook POST recibido:", JSON.stringify(payload));
-
-  const incoming = extractIncomingWhatsAppMessage(payload);
-  if (!incoming) {
-    return;
-  }
-
+async function handleOneIncoming(incoming: IncomingWhatsAppMessage): Promise<void> {
   try {
     const text = await resolveIncomingText(incoming);
     if (text === null) {
@@ -173,6 +246,15 @@ async function processIncomingWebhook(payload: WhatsAppWebhookPayload): Promise<
     } catch (replyError) {
       logSafeError("Webhook: tampoco se pudo avisar al usuario", replyError);
     }
+  }
+}
+
+async function processIncomingWebhook(payload: WhatsAppWebhookPayload): Promise<void> {
+  console.log("Webhook POST recibido:", JSON.stringify(payload));
+
+  const incoming = extractIncomingWhatsAppMessages(payload);
+  for (const message of incoming) {
+    await handleOneIncoming(message);
   }
 }
 
