@@ -2,8 +2,15 @@ import express, { Request, Response } from "express";
 import dotenv from "dotenv";
 import { handleIncomingWhatsAppMessage } from "./services/conversation.service";
 import { humanizeLedgerError } from "./services/ledger-error.service";
+import { claimProcessedMessage } from "./services/processed-messages.store";
 import { transcribeWhatsAppAudio } from "./services/transcription.service";
 import { rememberWhatsAppRecipient } from "./services/whatsapp.recipients";
+import {
+  hashWhatsAppSender,
+  META_SIGNATURE_HEADER,
+  resolveWebhookChallenge,
+  verifyMetaSignature,
+} from "./services/webhook-security.service";
 import {
   logSafeError,
   sendWhatsAppMessage,
@@ -15,7 +22,16 @@ dotenv.config();
 const app = express();
 const port = Number(process.env.PORT) || 3000;
 
-app.use(express.json());
+type SignedRequest = Request & { rawBody?: Buffer };
+
+app.use(
+  express.json({
+    limit: "1mb",
+    verify: (req, _res, buf) => {
+      (req as SignedRequest).rawBody = buf;
+    },
+  })
+);
 
 app.get("/health", (_req: Request, res: Response) => {
   res.json({
@@ -26,17 +42,18 @@ app.get("/health", (_req: Request, res: Response) => {
 });
 
 app.get("/webhook", (req: Request, res: Response) => {
-  const mode = req.query["hub.mode"];
-  const token = req.query["hub.verify_token"];
-  const challenge = req.query["hub.challenge"];
-  const verifyToken = process.env.VERIFY_TOKEN;
+  const challenge = resolveWebhookChallenge({
+    mode: req.query["hub.mode"],
+    token: req.query["hub.verify_token"],
+    challenge: req.query["hub.challenge"],
+  });
 
-  if (mode === "subscribe" && token === verifyToken) {
-    res.status(200).send(challenge);
+  if (challenge === null) {
+    res.sendStatus(403);
     return;
   }
 
-  res.sendStatus(403);
+  res.status(200).send(challenge);
 });
 
 interface WhatsAppWebhookPayload {
@@ -76,7 +93,7 @@ type IncomingWhatsAppMessage =
       from: string;
       name: string;
       text: string;
-      messageId?: string;
+      messageId: string;
     }
   | {
       kind: "audio";
@@ -84,32 +101,9 @@ type IncomingWhatsAppMessage =
       name: string;
       mediaId: string;
       mimeType?: string;
-      messageId?: string;
+      messageId: string;
     }
-  | { kind: "unsupported"; from: string; name: string; messageId?: string };
-
-const processedMessageIds = new Map<string, number>();
-const MESSAGE_TTL_MS = 10 * 60 * 1000;
-
-function rememberMessage(id?: string): boolean {
-  if (!id) {
-    return false;
-  }
-
-  const now = Date.now();
-  for (const [knownId, seenAt] of processedMessageIds) {
-    if (now - seenAt > MESSAGE_TTL_MS) {
-      processedMessageIds.delete(knownId);
-    }
-  }
-
-  if (processedMessageIds.has(id)) {
-    return true;
-  }
-
-  processedMessageIds.set(id, now);
-  return false;
-}
+  | { kind: "unsupported"; from: string; name: string; messageId: string };
 
 function extractIncomingWhatsAppMessages(
   payload: WhatsAppWebhookPayload
@@ -123,11 +117,7 @@ function extractIncomingWhatsAppMessages(
       const messages = value?.messages ?? [];
 
       if (statuses.length && !messages.length) {
-        console.log(
-          `Webhook: status ignorado ${statuses
-            .map((status) => `${status.status ?? "?"}→${status.recipient_id ?? "?"}`)
-            .join(", ")}`
-        );
+        console.log(`Webhook: ${statuses.length} status ignorado(s)`);
         continue;
       }
 
@@ -145,15 +135,21 @@ function extractIncomingWhatsAppMessages(
           continue;
         }
 
-        rememberWhatsAppRecipient(from, userId);
-
-        if (rememberMessage(message.id)) {
-          console.log(`Webhook: mensaje duplicado ${message.id} ignorado`);
+        const messageId = message.id;
+        if (!messageId) {
+          console.log("Webhook: mensaje sin id ignorado");
           continue;
         }
 
+        const claim = claimProcessedMessage(messageId);
+        if (claim === "duplicate") {
+          console.log(`Webhook: mensaje duplicado ${messageId} ignorado`);
+          continue;
+        }
+
+        rememberWhatsAppRecipient(from, userId);
         console.log(
-          `Webhook: mensaje ${message.id ?? "sin-id"} de ${from}${userId ? ` user_id=${userId}` : ""} tipo=${message.type ?? "?"}`
+          `Webhook: mensaje ${messageId} from=${hashWhatsAppSender(from)} tipo=${message.type ?? "?"}`
         );
 
         if (message.type === "audio" || message.audio?.id) {
@@ -166,9 +162,9 @@ function extractIncomingWhatsAppMessages(
                   name,
                   mediaId,
                   mimeType: message.audio?.mime_type,
-                  messageId: message.id,
+                  messageId,
                 }
-              : { kind: "unsupported", from, name, messageId: message.id }
+              : { kind: "unsupported", from, name, messageId }
           );
           continue;
         }
@@ -179,7 +175,7 @@ function extractIncomingWhatsAppMessages(
             from,
             name,
             text: message.text?.body?.trim() ?? "",
-            messageId: message.id,
+            messageId,
           });
           continue;
         }
@@ -188,7 +184,7 @@ function extractIncomingWhatsAppMessages(
           kind: "unsupported",
           from,
           name,
-          messageId: message.id,
+          messageId,
         });
       }
     }
@@ -225,7 +221,9 @@ async function resolveIncomingText(
     return null;
   }
 
-  console.log(`Voz transcrita de ${incoming.from}: ${transcript}`);
+  console.log(
+    `Webhook: voz transcrita ${incoming.messageId} chars=${transcript.length}`
+  );
   return transcript;
 }
 
@@ -257,15 +255,21 @@ async function handleOneIncoming(incoming: IncomingWhatsAppMessage): Promise<voi
 }
 
 async function processIncomingWebhook(payload: WhatsAppWebhookPayload): Promise<void> {
-  console.log("Webhook POST recibido:", JSON.stringify(payload));
-
   const incoming = extractIncomingWhatsAppMessages(payload);
+  console.log(`Webhook: ${incoming.length} mensaje(s) a procesar`);
   for (const message of incoming) {
     await handleOneIncoming(message);
   }
 }
 
 app.post("/webhook", (req: Request, res: Response) => {
+  const signed = req as SignedRequest;
+  if (!verifyMetaSignature(signed.rawBody, req.header(META_SIGNATURE_HEADER))) {
+    console.error("Webhook: firma Meta ausente o inválida");
+    res.sendStatus(403);
+    return;
+  }
+
   res.sendStatus(200);
   void processIncomingWebhook(req.body);
 });

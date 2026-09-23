@@ -36,16 +36,16 @@ El payload completo se loguea con `JSON.stringify(payload)` antes de filtrar.
 
 ## Checklist
 
-- [ ] Validar `X-Hub-Signature-256` con `WHATSAPP_APP_SECRET` (HMAC-SHA256 del raw body) **antes** de parsear/ejecutar el handler.
-- [ ] Usar `express.raw` o `verify` de `express.json` para firmar el body original; no re-serializar JSON.
-- [ ] Comparar firma y `VERIFY_TOKEN` con `crypto.timingSafeEqual` sobre buffers de igual longitud.
-- [ ] Rechazar GET si `VERIFY_TOKEN` está vacío o ausente (nunca `undefined === undefined`).
-- [ ] Responder `401/403` y no procesar si la firma falta o no coincide.
-- [ ] Persistir IDs de mensaje procesados (archivo/DB) con TTL, no solo `Map` en proceso.
-- [ ] Ignorar mensajes sin `id` o exigir `id` para cualquier acción que mueva fondos.
-- [ ] Dejar de loguear el webhook completo; loguear solo `message.id`, tipo y un hash del `from`.
-- [ ] Agregar una prueba que envíe un POST sin firma y otra con firma inválida: no deben llamar a `handleIncomingWhatsAppMessage`.
-- [ ] Documentar `WHATSAPP_APP_SECRET` en `.env.example` y Render (sin commitear el valor).
+- [x] Validar `X-Hub-Signature-256` con `WHATSAPP_APP_SECRET` (HMAC-SHA256 del raw body) **antes** de parsear/ejecutar el handler.
+- [x] Usar `express.raw` o `verify` de `express.json` para firmar el body original; no re-serializar JSON.
+- [x] Comparar firma y `VERIFY_TOKEN` con `crypto.timingSafeEqual` sobre buffers de igual longitud.
+- [x] Rechazar GET si `VERIFY_TOKEN` está vacío o ausente (nunca `undefined === undefined`).
+- [x] Responder `401/403` y no procesar si la firma falta o no coincide.
+- [x] Persistir IDs de mensaje procesados (archivo/DB) con TTL, no solo `Map` en proceso.
+- [x] Ignorar mensajes sin `id` o exigir `id` para cualquier acción que mueva fondos.
+- [x] Dejar de loguear el webhook completo; loguear solo `message.id`, tipo y un hash del `from`.
+- [x] Agregar una prueba que envíe un POST sin firma y otra con firma inválida: no deben llamar a `handleIncomingWhatsAppMessage`.
+- [x] Documentar `WHATSAPP_APP_SECRET` en `.env.example` y Render (sin commitear el valor).
 
 ## Criterios de aceptación
 

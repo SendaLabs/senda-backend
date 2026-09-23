@@ -87,7 +87,8 @@ Para que Meta llegue al webhook en local hace falta un túnel (ngrok, Cloudflare
 | `PORT` | Puerto del servidor |
 | `WHATSAPP_TOKEN` | Token de la Cloud API |
 | `WHATSAPP_PHONE_NUMBER_ID` | ID del número de negocio |
-| `VERIFY_TOKEN` | Token de verificación del webhook |
+| `VERIFY_TOKEN` | Token de verificación del GET `/webhook` (no puede estar vacío) |
+| `WHATSAPP_APP_SECRET` | App Secret de Meta para validar `X-Hub-Signature-256` |
 | `WHATSAPP_API_VERSION` | Versión de Graph (default `v22.0`) |
 | `STELLAR_NETWORK` | `testnet` o `public` |
 | `STELLAR_SECRET_KEY` | Seed de la cuenta operativa (nunca commitear) |

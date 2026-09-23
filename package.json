@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
+    "test": "node --require ts-node/register --test src/services/webhook-security.test.ts",
     "contract:build": "stellar contract build --manifest-path contracts/Cargo.toml",
     "contract:deploy": "node scripts/deploy-contract.js"
   },
