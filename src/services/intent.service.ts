@@ -313,9 +313,5 @@ export function classifyIntent(text: string): UserIntent {
     return { type: "send", amount };
   }
 
-  if (amount !== null) {
-    return { type: "send", amount };
-  }
-
   return { type: "unknown" };
 }

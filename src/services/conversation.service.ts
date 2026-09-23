@@ -10,6 +10,12 @@ import {
   normalizeText,
 } from "./intent.service";
 import { humanizeLedgerError } from "./ledger-error.service";
+import { clearPendingAck, getPendingAck, savePendingAck } from "./pending-ack.store";
+import {
+  beginCreditClaim,
+  finishCreditClaim,
+  withPhoneLock,
+} from "./operation-guard.service";
 import { creditUserOnTestnet, getUserOnChainState } from "./stellar.service";
 import {
   createCashWithdrawal,
@@ -34,6 +40,8 @@ import {
   WELCOME_VIDEO_CAPTION,
   getWelcomeVideoUrl,
 } from "./whatsapp.service";
+
+let currentMessageId: string | undefined;
 
 const ASK_AMOUNT =
   "¿Cuánto querés enviar? Podés escribir 10, «20 dólares» o «mandar 15 USDC».";
@@ -148,6 +156,7 @@ async function executeUsdcTransfer(
   name: string,
   usdAmount: number
 ): Promise<void> {
+  const messageId = currentMessageId;
   if (usdAmount > MAX_USDC_PER_SEND) {
     setSession(to, { step: ConversationStep.AWAITING_USD_AMOUNT, name });
     await sendWhatsAppMessage(
@@ -163,18 +172,45 @@ async function executeUsdcTransfer(
   );
 
   try {
-    const result = await creditUserOnTestnet(to, usdAmount);
+    const result = await withPhoneLock(to, async () => {
+      if (messageId) {
+        const claim = await beginCreditClaim(messageId, to, usdAmount);
+        if (claim.status === "duplicate") {
+          return {
+            amountUsdc: String(usdAmount),
+            usdcBalance: await getSpendableUsdc(to),
+            duplicate: true,
+          };
+        }
+      }
+
+      const credited = await creditUserOnTestnet(to, usdAmount);
+      if (messageId) {
+        await finishCreditClaim(messageId, credited.usdcTxHash);
+      }
+      return {
+        amountUsdc: credited.amountUsdc,
+        usdcBalance: credited.usdcBalance,
+        duplicate: false,
+      };
+    });
     setSession(to, idleSession(name));
 
-    await sendWhatsAppMessage(
-      to,
-      [
-        `Listo 💸 Ya acreditamos ${result.amountUsdc} USDC en tu cuenta.`,
-        `Ahora tenés ${result.usdcBalance} USDC.`,
-        "",
-        "Si querés, pedime el saldo, mandá otro monto, retiralo en efectivo o pasalo a Mercado Pago.",
-      ].join("\n")
-    );
+    const receipt = result.duplicate
+      ? "Ese envío ya lo habíamos acreditado. Pedime el saldo si querés confirmarlo."
+      : [
+          `Listo 💸 Ya acreditamos ${result.amountUsdc} USDC en tu cuenta.`,
+          `Ahora tenés ${result.usdcBalance} USDC.`,
+          "",
+          "Si querés, pedime el saldo, mandá otro monto, retiralo en efectivo o pasalo a Mercado Pago.",
+        ].join("\n");
+    try {
+      await sendWhatsAppMessage(to, receipt);
+      await clearPendingAck(to);
+    } catch (error) {
+      await savePendingAck(to, receipt);
+      throw error;
+    }
   } catch (error) {
     logSafeError("Error al acreditar", error);
     setSession(to, { step: ConversationStep.AWAITING_USD_AMOUNT, name });
@@ -207,7 +243,9 @@ async function executeCashWithdrawal(
   );
 
   try {
-    const order = await createCashWithdrawal(to, amount, partner);
+    const order = await withPhoneLock(to, () =>
+      createCashWithdrawal(to, amount, partner)
+    );
     const remaining = await getSpendableUsdc(to);
     setSession(to, idleSession(name));
 
@@ -325,7 +363,9 @@ async function startMercadoPagoFlow(
   );
 
   try {
-    const started = await startMercadoPagoWithdraw(to, amount);
+    const started = await withPhoneLock(to, () =>
+      startMercadoPagoWithdraw(to, amount)
+    );
     setSession(to, idleSession(name));
     await sendWhatsAppMessage(
       to,
@@ -369,7 +409,7 @@ async function startYieldSupplyFlow(
   );
 
   try {
-    const result = await supplyToBlend(to, amount);
+    const result = await withPhoneLock(to, () => supplyToBlend(to, amount));
     setSession(to, idleSession(name));
     await sendWhatsAppMessage(
       to,
@@ -405,7 +445,7 @@ async function startYieldWithdrawFlow(
   );
 
   try {
-    const result = await withdrawFromBlend(to, amount);
+    const result = await withPhoneLock(to, () => withdrawFromBlend(to, amount));
     setSession(to, idleSession(name));
     await sendWhatsAppMessage(
       to,
@@ -494,8 +534,36 @@ async function dispatchIntent(
 export async function handleIncomingWhatsAppMessage(
   from: string,
   name: string,
+  text: string,
+  messageId?: string
+): Promise<void> {
+  currentMessageId = messageId;
+  try {
+    await handleIncomingWhatsAppMessageInner(from, name, text);
+  } finally {
+    currentMessageId = undefined;
+  }
+}
+
+function isReceiptQuery(text: string): boolean {
+  return /\b(llego|llegó|comprobante|me llego|ya llego|me lo mandaste)\b/.test(
+    normalizeText(text)
+  );
+}
+
+async function handleIncomingWhatsAppMessageInner(
+  from: string,
+  name: string,
   text: string
 ): Promise<void> {
+  if (isReceiptQuery(text)) {
+    const ack = getPendingAck(from);
+    if (ack) {
+      await sendWhatsAppMessage(from, ack.text);
+      return;
+    }
+  }
+
   const session = getSession(from);
   const intent = classifyIntent(text);
 
