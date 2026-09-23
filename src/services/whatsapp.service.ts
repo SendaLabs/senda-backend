@@ -1,4 +1,5 @@
 import axios, { isAxiosError } from "axios";
+import { getWhatsAppUserId } from "./whatsapp.recipients";
 
 const GRAPH_API_VERSION = process.env.WHATSAPP_API_VERSION ?? "v22.0";
 
@@ -24,7 +25,9 @@ export interface WhatsAppMessageResponse {
 
 type WhatsAppOutgoingPayload = {
   messaging_product: "whatsapp";
-  to: string;
+  recipient_type?: "individual";
+  to?: string;
+  recipient?: string;
   type: "text" | "video";
   text?: { body: string };
   video?: { link: string; caption?: string };
@@ -151,15 +154,16 @@ async function postWhatsAppMessageOnce(
     });
 
     const messageId = data.messages?.[0]?.id;
+    const destination = payload.recipient ?? payload.to ?? "?";
     console.log(
-      `WhatsApp: ${payload.type} enviado a ${payload.to}${messageId ? ` (id: ${messageId})` : ""}`
+      `WhatsApp: ${payload.type} enviado a ${destination}${messageId ? ` (id: ${messageId})` : ""}`
     );
 
     return data;
   } catch (error) {
     const summary = summarizeMetaError(error);
     const wrapped = new WhatsAppSendError({
-      to: payload.to,
+      to: payload.recipient ?? payload.to ?? "desconocido",
       kind: payload.type,
       status: summary.status,
       code: summary.code,
@@ -173,12 +177,35 @@ async function postWhatsAppMessageOnce(
 async function postWhatsAppMessage(
   payload: WhatsAppOutgoingPayload
 ): Promise<WhatsAppMessageResponse> {
-  const candidates = recipientCandidates(payload.to);
+  const phone = payload.to ?? "";
+  const userId = payload.recipient ?? (phone ? getWhatsAppUserId(phone) : undefined);
   let lastError: WhatsAppSendError | undefined;
 
+  if (userId) {
+    try {
+      const { to: _ignored, ...rest } = payload;
+      return await postWhatsAppMessageOnce({
+        ...rest,
+        recipient_type: "individual",
+        recipient: userId,
+      });
+    } catch (error) {
+      if (!(error instanceof WhatsAppSendError) || !isRetryableSendCode(error.code)) {
+        throw error;
+      }
+      lastError = error;
+    }
+  }
+
+  const candidates = phone ? recipientCandidates(phone) : [];
   for (const to of candidates) {
     try {
-      return await postWhatsAppMessageOnce({ ...payload, to });
+      const { recipient: _ignored, ...rest } = payload;
+      return await postWhatsAppMessageOnce({
+        ...rest,
+        recipient_type: "individual",
+        to,
+      });
     } catch (error) {
       if (error instanceof WhatsAppSendError && isRetryableSendCode(error.code)) {
         lastError = error;
@@ -189,7 +216,7 @@ async function postWhatsAppMessage(
   }
 
   throw lastError ?? new WhatsAppSendError({
-    to: payload.to,
+    to: userId ?? phone,
     kind: payload.type,
     message: "No se pudo enviar el mensaje de WhatsApp",
   });

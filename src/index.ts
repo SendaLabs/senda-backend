@@ -3,6 +3,7 @@ import dotenv from "dotenv";
 import { handleIncomingWhatsAppMessage } from "./services/conversation.service";
 import { humanizeLedgerError } from "./services/ledger-error.service";
 import { transcribeWhatsAppAudio } from "./services/transcription.service";
+import { rememberWhatsAppRecipient } from "./services/whatsapp.recipients";
 import {
   logSafeError,
   sendWhatsAppMessage,
@@ -45,10 +46,12 @@ interface WhatsAppWebhookPayload {
         contacts?: Array<{
           profile?: { name?: string };
           wa_id?: string;
+          user_id?: string;
         }>;
         messages?: Array<{
           id?: string;
           from?: string;
+          from_user_id?: string;
           type?: string;
           text?: { body?: string };
           audio?: {
@@ -134,11 +137,15 @@ function extractIncomingWhatsAppMessages(
           message.from ||
           ""
         ).replace(/\D/g, "");
+        const userId =
+          value?.contacts?.[0]?.user_id || message.from_user_id;
         const name = value?.contacts?.[0]?.profile?.name?.trim() || "amigo";
 
         if (!from) {
           continue;
         }
+
+        rememberWhatsAppRecipient(from, userId);
 
         if (rememberMessage(message.id)) {
           console.log(`Webhook: mensaje duplicado ${message.id} ignorado`);
@@ -146,7 +153,7 @@ function extractIncomingWhatsAppMessages(
         }
 
         console.log(
-          `Webhook: mensaje ${message.id ?? "sin-id"} de ${from} tipo=${message.type ?? "?"}`
+          `Webhook: mensaje ${message.id ?? "sin-id"} de ${from}${userId ? ` user_id=${userId}` : ""} tipo=${message.type ?? "?"}`
         );
 
         if (message.type === "audio" || message.audio?.id) {
