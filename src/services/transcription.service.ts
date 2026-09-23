@@ -1,11 +1,10 @@
-import { randomUUID } from "crypto";
-import { unlink, writeFile } from "fs/promises";
-import { tmpdir } from "os";
-import { join } from "path";
 import axios from "axios";
+import FormData from "form-data";
 import {
   downloadWhatsAppMedia,
   isSupportedVoiceMime,
+  MAX_VOICE_BYTES,
+  sanitizeVoiceFilename,
 } from "./whatsapp.media.service";
 import { logSafeError } from "./whatsapp.service";
 
@@ -29,17 +28,21 @@ export async function transcribeAudioBuffer(
   filename: string,
   mimeType: string
 ): Promise<string> {
-  const tempPath = join(tmpdir(), `senda-voice-${randomUUID()}-${filename}`);
+  if (buffer.length > MAX_VOICE_BYTES) {
+    throw new Error("El audio supera el tamaño máximo permitido");
+  }
+  if (!isSupportedVoiceMime(mimeType)) {
+    throw new Error("El audio no tiene un formato soportado");
+  }
+
+  const safeName = sanitizeVoiceFilename(filename);
 
   try {
-    await writeFile(tempPath, buffer);
-
     const form = new FormData();
-    form.append(
-      "file",
-      new Blob([new Uint8Array(buffer)], { type: mimeType || "audio/ogg" }),
-      filename
-    );
+    form.append("file", buffer, {
+      filename: safeName,
+      contentType: mimeType,
+    });
     form.append("model", getTranscriptionModel());
     form.append("language", "es");
     form.append("response_format", "json");
@@ -50,8 +53,10 @@ export async function transcribeAudioBuffer(
       {
         headers: {
           Authorization: `Bearer ${getOpenAiApiKey()}`,
+          ...form.getHeaders(),
         },
-        maxBodyLength: 25 * 1024 * 1024,
+        maxBodyLength: MAX_VOICE_BYTES,
+        maxContentLength: MAX_VOICE_BYTES,
       }
     );
 
@@ -59,8 +64,6 @@ export async function transcribeAudioBuffer(
   } catch (error) {
     logSafeError("Whisper", error);
     throw new Error("No se pudo transcribir la nota de voz");
-  } finally {
-    await unlink(tempPath).catch(() => undefined);
   }
 }
 
@@ -73,6 +76,6 @@ export async function transcribeWhatsAppAudio(
   }
 
   const media = await downloadWhatsAppMedia(mediaId);
-  const filename = `nota-voz${media.extension}`;
+  const filename = sanitizeVoiceFilename(`nota-voz${media.extension}`);
   return transcribeAudioBuffer(media.buffer, filename, media.mimeType);
 }

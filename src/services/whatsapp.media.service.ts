@@ -2,6 +2,23 @@ import axios from "axios";
 import { getWhatsAppAccessToken, logSafeError } from "./whatsapp.service";
 
 const GRAPH_API_VERSION = process.env.WHATSAPP_API_VERSION ?? "v22.0";
+export const MAX_VOICE_BYTES = 16 * 1024 * 1024;
+
+const ALLOWED_VOICE_MIMES = [
+  "audio/ogg",
+  "audio/opus",
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/mp4",
+  "audio/aac",
+  "audio/amr",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/webm",
+];
+
+const META_MEDIA_HOST_RE =
+  /(^|\.)((facebook|whatsapp)\.com|fbcdn\.net|fbsbx\.com|whatsapp\.net)$/i;
 
 export interface DownloadedWhatsAppMedia {
   buffer: Buffer;
@@ -14,7 +31,7 @@ interface MediaMetadata {
   mime_type?: string;
 }
 
-function extensionFromMime(mimeType: string): string {
+export function extensionFromMime(mimeType: string): string {
   const normalized = mimeType.toLowerCase();
   if (normalized.includes("mpeg") || normalized.includes("mp3")) {
     return ".mp3";
@@ -34,22 +51,42 @@ function extensionFromMime(mimeType: string): string {
   return ".ogg";
 }
 
+export function sanitizeVoiceFilename(filename: string): string {
+  const base = filename.split(/[/\\]/).pop() ?? "nota-voz.ogg";
+  const cleaned = base.replace(/[^a-zA-Z0-9._-]/g, "");
+  if (!cleaned || cleaned.includes("..")) {
+    return "nota-voz.ogg";
+  }
+  return cleaned.slice(0, 64);
+}
+
 export function isSupportedVoiceMime(mimeType?: string): boolean {
   if (!mimeType) {
-    return true;
+    return false;
   }
-  const normalized = mimeType.toLowerCase();
-  return (
-    normalized.includes("audio/") ||
-    normalized.includes("ogg") ||
-    normalized.includes("opus") ||
-    normalized.includes("mpeg") ||
-    normalized.includes("mp3") ||
-    normalized.includes("mp4") ||
-    normalized.includes("aac") ||
-    normalized.includes("amr") ||
-    normalized.includes("wav")
-  );
+  const normalized = mimeType.toLowerCase().split(";")[0]?.trim() ?? "";
+  if (!normalized.startsWith("audio/")) {
+    return false;
+  }
+  return ALLOWED_VOICE_MIMES.includes(normalized);
+}
+
+export function isMetaMediaHost(url: string): boolean {
+  try {
+    const { protocol, hostname } = new URL(url);
+    if (protocol !== "https:") {
+      return false;
+    }
+    return META_MEDIA_HOST_RE.test(hostname);
+  } catch {
+    return false;
+  }
+}
+
+function assertMetaMediaUrl(url: string): void {
+  if (!isMetaMediaHost(url)) {
+    throw new Error("La URL del audio no pertenece a Meta");
+  }
 }
 
 export async function downloadWhatsAppMedia(
@@ -61,22 +98,35 @@ export async function downloadWhatsAppMedia(
   try {
     const { data } = await axios.get<MediaMetadata>(metadataUrl, {
       headers: { Authorization: `Bearer ${token}` },
+      maxContentLength: MAX_VOICE_BYTES,
+      maxBodyLength: MAX_VOICE_BYTES,
     });
 
     if (!data.url) {
       throw new Error("Meta no devolvió la URL del audio");
     }
+    if (!data.mime_type || !isSupportedVoiceMime(data.mime_type)) {
+      throw new Error("El audio no tiene un formato soportado");
+    }
 
-    const mimeType = data.mime_type ?? "audio/ogg";
+    assertMetaMediaUrl(data.url);
+
     const { data: binary } = await axios.get<ArrayBuffer>(data.url, {
       headers: { Authorization: `Bearer ${token}` },
       responseType: "arraybuffer",
+      maxContentLength: MAX_VOICE_BYTES,
+      maxBodyLength: MAX_VOICE_BYTES,
+      maxRedirects: 3,
+      beforeRedirect: (options) => {
+        const next = options.href ?? `https://${options.hostname}${options.path ?? ""}`;
+        assertMetaMediaUrl(next);
+      },
     });
 
     return {
       buffer: Buffer.from(binary),
-      mimeType,
-      extension: extensionFromMime(mimeType),
+      mimeType: data.mime_type,
+      extension: extensionFromMime(data.mime_type),
     };
   } catch (error) {
     logSafeError("WhatsApp media", error);

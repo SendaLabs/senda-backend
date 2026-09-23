@@ -47,14 +47,14 @@ export function isSupportedVoiceMime(mimeType?: string): boolean {
 
 ## Checklist
 
-- [ ] Eliminar el `writeFile`/`unlink` si Whisper se llama con `Blob`/`Buffer`. No tocar el disco.
-- [ ] Si se necesita archivo (SDK que exige path): `mkdtemp` + nombre fijo (`audio.ogg`), `try/finally` que borre el directorio, y un job de arranque que limpie `senda-voice-*` huérfanos.
-- [ ] Poner `maxContentLength` y `maxBodyLength` (p. ej. 16 MB, alineado a WhatsApp) en metadata y download.
-- [ ] Rechazar mime ausente o fuera de allowlist (`audio/ogg`, `audio/opus`, `audio/mpeg`, `audio/mp4`, `audio/amr`, `audio/wav`).
-- [ ] Validar host de `data.url` (facebook, fbcdn, whatsapp) **antes** de descargar; no seguir redirects a hosts arbitrarios.
-- [ ] Sanitizar cualquier filename (solo `[a-z0-9.-]`, sin `/` ni `..`).
-- [ ] No loguear el transcript completo (`index.ts` hoy hace `Voz transcrita de ${from}: ${transcript}`).
-- [ ] Cubrir con test: mime vacío → error; buffer > tope → no escribe disco ni llama a OpenAI.
+- [x] Eliminar el `writeFile`/`unlink` si Whisper se llama con `Blob`/`Buffer`. No tocar el disco.
+- [x] Si se necesita archivo (SDK que exige path): `mkdtemp` + nombre fijo (`audio.ogg`), `try/finally` que borre el directorio, y un job de arranque que limpie `senda-voice-*` huérfanos.
+- [x] Poner `maxContentLength` y `maxBodyLength` (p. ej. 16 MB, alineado a WhatsApp) en metadata y download.
+- [x] Rechazar mime ausente o fuera de allowlist (`audio/ogg`, `audio/opus`, `audio/mpeg`, `audio/mp4`, `audio/amr`, `audio/wav`).
+- [x] Validar host de `data.url` (facebook, fbcdn, whatsapp) **antes** de descargar; no seguir redirects a hosts arbitrarios.
+- [x] Sanitizar cualquier filename (solo `[a-z0-9.-]`, sin `/` ni `..`).
+- [x] No loguear el transcript completo (`index.ts` hoy hace `Voz transcrita de ${from}: ${transcript}`).
+- [x] Cubrir con test: mime vacío → error; buffer > tope → no escribe disco ni llama a OpenAI.
 
 ## Criterios de aceptación
 
