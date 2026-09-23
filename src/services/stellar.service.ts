@@ -2,7 +2,6 @@ import axios from "axios";
 import {
   Address,
   Asset,
-  BASE_FEE,
   Contract,
   Horizon,
   Keypair,
@@ -15,13 +14,16 @@ import {
 import { usePrivyWallets } from "../config/flags";
 import { resolvePrivyAccount } from "../wallet/privy-account";
 import { resolveCustodialAccount } from "./custody.service";
+import { getInclusionFee } from "./fees.service";
 import {
   ensureUsdcTrustline,
   fromUsdcStroops,
   getUsdcBalance,
   getUsdcSacId,
   transferUsdc,
+  USDC_SCALE,
 } from "./usdc.service";
+import { logSafeError } from "./whatsapp.service";
 
 export type StellarNetworkName = "testnet" | "public";
 
@@ -81,16 +83,44 @@ function resolveNetworkName(): StellarNetworkName {
 }
 
 export function getNetworkConfig(): StellarNetworkConfig {
-  const defaults = NETWORK_DEFAULTS[resolveNetworkName()];
+  const name = resolveNetworkName();
+  const defaults = NETWORK_DEFAULTS[name];
+  const networkPassphrase =
+    process.env.STELLAR_NETWORK_PASSPHRASE ?? defaults.networkPassphrase;
+
+  if (networkPassphrase !== defaults.networkPassphrase) {
+    throw new Error(
+      `STELLAR_NETWORK=${name} no coincide con STELLAR_NETWORK_PASSPHRASE`
+    );
+  }
 
   return {
     ...defaults,
     horizonUrl: process.env.STELLAR_HORIZON_URL ?? defaults.horizonUrl,
     rpcUrl: process.env.STELLAR_RPC_URL ?? defaults.rpcUrl,
     friendbotUrl: process.env.STELLAR_FRIENDBOT_URL ?? defaults.friendbotUrl,
-    networkPassphrase:
-      process.env.STELLAR_NETWORK_PASSPHRASE ?? defaults.networkPassphrase,
+    networkPassphrase,
   };
+}
+
+export function assertNetworkConsistency(): void {
+  const config = getNetworkConfig();
+  const horizon = config.horizonUrl.toLowerCase();
+  const rpcUrl = config.rpcUrl.toLowerCase();
+
+  if (config.name === "testnet") {
+    if (horizon.includes("horizon.stellar.org") && !horizon.includes("testnet")) {
+      throw new Error("Horizon de public no se puede usar con STELLAR_NETWORK=testnet");
+    }
+    if (rpcUrl.includes("soroban.stellar.org") && !rpcUrl.includes("testnet")) {
+      throw new Error("RPC de public no se puede usar con STELLAR_NETWORK=testnet");
+    }
+    return;
+  }
+
+  if (horizon.includes("testnet") || rpcUrl.includes("testnet")) {
+    throw new Error("URLs de Testnet no se pueden usar con STELLAR_NETWORK=public");
+  }
 }
 
 export function getHorizonServer(): Horizon.Server {
@@ -146,7 +176,7 @@ async function ensureFunded(publicKey: string): Promise<void> {
     try {
       await fundAccount(publicKey);
     } catch (error) {
-      console.error("Friendbot:", error);
+      logSafeError("Friendbot", error);
       await sleepQuiet(800);
       await loadAccount(publicKey);
     }
@@ -188,7 +218,7 @@ export async function getOrCreateUserAccount(
       await ensureFunded(account.publicKey);
       return account;
     } catch (error) {
-      console.error("Privy wallet, fallback a custodia local:", error);
+      logSafeError("Privy wallet, fallback a custodia local", error);
     }
   }
 
@@ -215,7 +245,7 @@ async function submitHorizonPayment(
   }
 
   const builder = new TransactionBuilder(source, {
-    fee: BASE_FEE,
+    fee: await getInclusionFee(destinationExists ? 1 : 1),
     networkPassphrase,
   });
 
@@ -260,7 +290,7 @@ async function submitContractCredit(
   const contract = new Contract(contractId);
 
   const built = new TransactionBuilder(source, {
-    fee: BASE_FEE,
+    fee: await getInclusionFee(),
     networkPassphrase,
   })
     .addOperation(
@@ -314,16 +344,38 @@ export async function creditUserOnTestnet(
   phone: string,
   usdAmount: number
 ): Promise<CreditOnChainResult> {
+  if (
+    getNetworkConfig().name === "public" &&
+    process.env.ENABLE_PUBLIC_CREDIT !== "true"
+  ) {
+    throw new Error(
+      "El crédito automático solo está habilitado en Testnet"
+    );
+  }
+
   const user = await getOrCreateUserAccount(phone);
   try {
-    await ensureFunded(getOpsKeypair().publicKey());
-  } catch (error) {
-    console.error("Cuenta operativa:", error);
+    await loadAccount(getOpsKeypair().publicKey());
+  } catch {
+    throw new Error(
+      "La cuenta operativa no está fondeada. No se acredita USDC a ciegas."
+    );
   }
   await ensureUsdcTrustline(user);
   await sleepQuiet(400);
 
   const transfer = await transferUsdc(user.publicKey, usdAmount);
+  try {
+    const opsBalance = await getUsdcBalance(getOpsKeypair().publicKey());
+    if (opsBalance < USDC_SCALE * 50n) {
+      logSafeError(
+        "operativa USDC baja",
+        new Error(`saldo=${fromUsdcStroops(opsBalance)}`)
+      );
+    }
+  } catch (error) {
+    logSafeError("operativa USDC, no se pudo medir el saldo", error);
+  }
   let nativeBalanceXlm = "0";
   try {
     nativeBalanceXlm = await getNativeBalance(user.publicKey);
@@ -347,7 +399,7 @@ export async function getUserOnChainState(
   try {
     await ensureUsdcTrustline(wallet);
   } catch (error) {
-    console.error("Trustline al consultar saldo:", error);
+    logSafeError("Trustline al consultar saldo", error);
   }
 
   const config = getNetworkConfig();
