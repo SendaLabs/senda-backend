@@ -38,14 +38,14 @@ Huecos de UX/error:
 
 ## Checklist
 
-- [ ] Sustituir el dump del webhook por un log estructurado: `messageId`, `type`, `fromHash`.
-- [ ] No loguear transcripts; como máximo longitud y si hubo texto.
-- [ ] Reemplazar `console.error(error)` / `JSON.stringify(error)` en Stellar/USDC/Privy/Friendbot por `logSafeError`.
-- [ ] Separar errores de envío WhatsApp vs ledger vs voz: copy distinto, sin mencionar Stellar/WASM/SAC.
-- [ ] Si el pago on-chain confirmó y el WhatsApp falló, persistir “ack pendiente” y reintentar el texto (sin reacreditar).
-- [ ] No marcar `message.id` como procesado hasta terminar el handler, **o** marcar “en curso” y permitir retry solo si no hubo tx.
-- [ ] Persistir sesión (o al menos el paso + monto pendiente) fuera del `Map` en memoria.
-- [ ] Test de `logSafeError`: un Axios 400 con `Authorization` no aparece en stdout.
+- [x] Sustituir el dump del webhook por un log estructurado: `messageId`, `type`, `fromHash`.
+- [x] No loguear transcripts; como máximo longitud y si hubo texto.
+- [x] Reemplazar `console.error(error)` / `JSON.stringify(error)` en Stellar/USDC/Privy/Friendbot por `logSafeError`.
+- [x] Separar errores de envío WhatsApp vs ledger vs voz: copy distinto, sin mencionar Stellar/WASM/SAC.
+- [x] Si el pago on-chain confirmó y el WhatsApp falló, persistir “ack pendiente” y reintentar el texto (sin reacreditar).
+- [x] No marcar `message.id` como procesado hasta terminar el handler, **o** marcar “en curso” y permitir retry solo si no hubo tx.
+- [x] Persistir sesión (o al menos el paso + monto pendiente) fuera del `Map` en memoria.
+- [x] Test de `logSafeError`: un Axios 400 con `Authorization` no aparece en stdout.
 
 ## Criterios de aceptación
 
