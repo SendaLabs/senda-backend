@@ -66,7 +66,7 @@ export async function createCashWithdrawal(
   const vault = getOfframpVaultPublicKey();
   const transfer = await transferUsdcFromWallet(user, vault, amount);
 
-  return saveOfframpOrder({
+  return await saveOfframpOrder({
     id: quote.reference,
     phone,
     amountUsdc: transfer.amountUsdc,

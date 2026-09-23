@@ -1,5 +1,11 @@
-import fs from "fs";
 import path from "path";
+import { getDataDir } from "./data-dir";
+import {
+  decryptString,
+  encryptString,
+  isVaultCiphertext,
+} from "./file-vault.service";
+import { mutateJsonFile, readJsonFile } from "./json-store";
 
 export type OfframpPartnerId = "moneygram" | "comercio" | "western_union";
 
@@ -19,34 +25,39 @@ export interface OfframpOrder {
   createdAt: string;
 }
 
-const ORDERS_PATH = path.join(process.cwd(), "data", "offramp-orders.json");
+function ordersPath(): string {
+  return path.join(getDataDir(), "offramp-orders.json");
+}
 
-function readStore(): OfframpOrder[] {
-  try {
-    const raw = fs.readFileSync(ORDERS_PATH, "utf8");
-    return JSON.parse(raw) as OfframpOrder[];
-  } catch {
-    return [];
+function decodeOrder(order: OfframpOrder): OfframpOrder {
+  if (!isVaultCiphertext(order.pickupCode)) {
+    return order;
   }
+  return { ...order, pickupCode: decryptString(order.pickupCode) };
 }
 
-function writeStore(orders: OfframpOrder[]): void {
-  fs.mkdirSync(path.dirname(ORDERS_PATH), { recursive: true });
-  fs.writeFileSync(ORDERS_PATH, JSON.stringify(orders, null, 2), {
-    encoding: "utf8",
-    mode: 0o600,
+function encodeOrder(order: OfframpOrder): OfframpOrder {
+  if (isVaultCiphertext(order.pickupCode)) {
+    return order;
+  }
+  return { ...order, pickupCode: encryptString(order.pickupCode) };
+}
+
+function readOrders(): OfframpOrder[] {
+  return readJsonFile<OfframpOrder[]>(ordersPath(), []).map(decodeOrder);
+}
+
+export async function saveOfframpOrder(order: OfframpOrder): Promise<OfframpOrder> {
+  await mutateJsonFile<OfframpOrder[]>(ordersPath(), [], (orders) => {
+    const without = orders.filter((item) => item.id !== order.id);
+    without.unshift(encodeOrder(order));
+    return without;
   });
-}
-
-export function saveOfframpOrder(order: OfframpOrder): OfframpOrder {
-  const orders = readStore();
-  orders.unshift(order);
-  writeStore(orders);
-  return order;
+  return decodeOrder(order);
 }
 
 export function listOfframpOrders(phone: string): OfframpOrder[] {
-  return readStore().filter((order) => order.phone === phone);
+  return readOrders().filter((order) => order.phone === phone);
 }
 
 export function getLatestPendingOrder(phone: string): OfframpOrder | undefined {

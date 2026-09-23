@@ -94,7 +94,8 @@ Para que Meta llegue al webhook en local hace falta un túnel (ngrok, Cloudflare
 | `STELLAR_SECRET_KEY` | Seed de la cuenta operativa (nunca commitear) |
 | `STELLAR_PUBLIC_KEY` | Clave pública operativa (opcional) |
 | `STELLAR_CONTRACT_ID` | ID `C…` del contrato en Testnet |
-| `CUSTODY_MASTER_SECRET` | Secreto HKDF para derivar/recuperar cuentas (SEP-30) |
+| `CUSTODY_MASTER_SECRET` | Secreto HKDF para derivar/recuperar cuentas (SEP-30). Obligatorio; no puede ser `STELLAR_SECRET_KEY`. Si lo rotás, las wallets ya persistidas no cambian de dirección: el proceso falla hasta migrar. |
+| `FILE_VAULT_SECRET` | Clave AES-256-GCM para cifrar códigos de retiro y seeds legado en `data/`. Distinta de la operativa y de la master. |
 | `STELLAR_OFFRAMP_PUBLIC_KEY` | Vault que recibe el USDC al retirar efectivo |
 | `OPENAI_API_KEY` | Clave para transcribir notas de voz con Whisper |
 | `OPENAI_TRANSCRIPTION_MODEL` | Modelo de transcripción (default `whisper-1`) |
@@ -144,7 +145,7 @@ Sin `STELLAR_CONTRACT_ID` el bot igual envía el pago XLM en Horizon; el registr
 4. Cargá las mismas variables que en `.env` (nunca el archivo `.env`).
 5. En Meta, el webhook debe ser `https://<tu-servicio>/webhook`.
 
-Las identidades SEP-30, wallets y órdenes de retiro viven en `data/` (`identities.json`, `wallets.json`, `offramp-orders.json`, `senda-db.json`, gitignored). En un disco efímero de Render se recrean; con `CUSTODY_MASTER_SECRET` fijo la misma cuenta se vuelve a derivar desde el WhatsApp.
+Las identidades SEP-30, wallets y órdenes de retiro viven en `data/` (`identities.json`, `wallets.json`, `offramp-orders.json`, `senda-db.json`, gitignored). En un disco efímero de Render se recrean; con `CUSTODY_MASTER_SECRET` fijo la misma cuenta se vuelve a derivar desde el WhatsApp. `data/wallets.json` solo guarda la `publicKey` de cuentas derivadas: la seed se recalcula en memoria. Los códigos de pickup se guardan cifrados con `FILE_VAULT_SECRET`. Rotar la master no mueve fondos de la operativa (`STELLAR_SECRET_KEY`); sí invalida la derivación de usuarios ya persistidos hasta una migración explícita.
 
 ## Wallets Privy (opcional)
 
