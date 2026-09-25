@@ -113,14 +113,22 @@ async function sendMenu(to: string, name: string): Promise<void> {
   setSession(to, idleSession(name));
 }
 
-export async function sendWelcomeFlow(to: string, name: string): Promise<void> {
-  await sendMenu(to, name);
-
+async function sendWelcomeVideoOrCaption(to: string): Promise<void> {
   try {
     await sendWhatsAppVideo(to, getWelcomeVideoUrl(), WELCOME_VIDEO_CAPTION);
   } catch (error) {
     logSafeError("Webhook: no se pudo enviar el video de bienvenida", error);
+    try {
+      await sendWhatsAppMessage(to, WELCOME_VIDEO_CAPTION);
+    } catch (captionError) {
+      logSafeError("Webhook: tampoco pude mandar el texto del video", captionError);
+    }
   }
+}
+
+export async function sendWelcomeFlow(to: string, name: string): Promise<void> {
+  await sendMenu(to, name);
+  await sendWelcomeVideoOrCaption(to);
 }
 
 async function startSendFlow(to: string, name: string): Promise<void> {
@@ -721,6 +729,7 @@ async function handleIncomingWhatsAppMessageInner(
   const setupInvite = await maybeInviteWalletSetup(from, name);
   if (setupInvite) {
     await sendWhatsAppMessage(from, setupInvite);
+    await sendWelcomeVideoOrCaption(from);
     return;
   }
 

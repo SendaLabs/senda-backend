@@ -1,5 +1,4 @@
 import { Keypair, type Transaction } from "@stellar/stellar-sdk";
-import { usePrivyWallets } from "../config/flags";
 import { signStellarHash } from "./privy-client";
 
 export interface SignableAccount {
@@ -14,7 +13,7 @@ export async function signStellarTransaction(
   account: SignableAccount,
   tx: Transaction
 ): Promise<void> {
-  if (account.privyWalletId && usePrivyWallets()) {
+  if (account.privyWalletId) {
     const signature = await signStellarHash(
       account.privyWalletId,
       Buffer.from(tx.hash())

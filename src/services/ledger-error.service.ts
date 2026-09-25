@@ -39,6 +39,14 @@ export function humanizeLedgerError(error: unknown): string {
     return error.message;
   }
 
+  if (/cuenta operativa no está fondeada|friendbot|falta stellar_secret_key/i.test(raw)) {
+    return "Ahora no puedo mover dólares: la cuenta de Senda no está lista. Probá en un rato.";
+  }
+
+  if (/simulación sac|sac rechazó|sac transfer failed/i.test(raw)) {
+    return "La red no aceptó ese envío. No se movió nada. Probá de nuevo en un momento.";
+  }
+
   if (
     error instanceof Error &&
     /PRIVY_SESSION_SIGNER_PRIVATE_KEY|delegado el signer/i.test(error.message)
