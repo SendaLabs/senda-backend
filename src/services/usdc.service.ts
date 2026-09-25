@@ -4,6 +4,7 @@ import {
   Contract,
   Horizon,
   Keypair,
+  Memo,
   Networks,
   Operation,
   TransactionBuilder,
@@ -277,26 +278,40 @@ export async function ensureUsdcTrustline(wallet: UsdcWallet): Promise<void> {
   }
 }
 
+function withOptionalMemo(
+  builder: TransactionBuilder,
+  memo?: string
+): TransactionBuilder {
+  const text = memo?.trim();
+  if (!text) {
+    return builder;
+  }
+  return builder.addMemo(Memo.text(text.slice(0, 28)));
+}
+
 async function transferUsdcViaHorizon(
   from: UsdcWallet,
   toPublicKey: string,
-  amount: number
+  amount: number,
+  memo?: string
 ): Promise<string> {
   const horizon = getHorizonServer();
   const source = await horizon.loadAccount(from.publicKey);
   const asset = getUsdcAsset();
 
-  const tx = new TransactionBuilder(source, {
-    fee: await getInclusionFee(),
-    networkPassphrase: getNetworkPassphrase(),
-  })
-    .addOperation(
+  const tx = withOptionalMemo(
+    new TransactionBuilder(source, {
+      fee: await getInclusionFee(),
+      networkPassphrase: getNetworkPassphrase(),
+    }).addOperation(
       Operation.payment({
         destination: toPublicKey,
         asset,
         amount: fromUsdcStroops(toUsdcStroops(amount)),
       })
-    )
+    ),
+    memo
+  )
     .setTimeout(60)
     .build();
 
@@ -322,24 +337,27 @@ async function recoverSacHash(
 async function transferUsdcViaSac(
   from: UsdcWallet,
   toPublicKey: string,
-  stroops: bigint
+  stroops: bigint,
+  memo?: string
 ): Promise<string> {
   const server = getRpcServer();
   const account = await server.getAccount(from.publicKey);
   const contract = new Contract(getUsdcSacId());
 
-  const built = new TransactionBuilder(account, {
-    fee: await getInclusionFee(),
-    networkPassphrase: getNetworkPassphrase(),
-  })
-    .addOperation(
+  const built = withOptionalMemo(
+    new TransactionBuilder(account, {
+      fee: await getInclusionFee(),
+      networkPassphrase: getNetworkPassphrase(),
+    }).addOperation(
       contract.call(
         "transfer",
         Address.fromString(from.publicKey).toScVal(),
         Address.fromString(toPublicKey).toScVal(),
         nativeToScVal(stroops, { type: "i128" })
       )
-    )
+    ),
+    memo
+  )
     .setTimeout(60)
     .build();
 
@@ -418,10 +436,17 @@ async function submitUsdcTransfer(
   from: UsdcWallet,
   toPublicKey: string,
   amount: number,
-  balanceOf: string
+  balanceOf: string,
+  memo?: string
 ): Promise<UsdcTransferResult> {
   const stroops = toUsdcStroops(amount);
-  const txHash = await submitUsdcTransferOnce(from, toPublicKey, amount);
+  const txHash = await submitUsdcTransferOnce(
+    from,
+    toPublicKey,
+    amount,
+    (wallet, dest, value) => transferUsdcViaSac(wallet, dest, value, memo),
+    (wallet, dest, value) => transferUsdcViaHorizon(wallet, dest, value, memo)
+  );
   let balanceUsdc = fromUsdcStroops(stroops);
   try {
     let onChain = await getUsdcBalance(balanceOf);
@@ -464,7 +489,14 @@ export async function transferUsdc(
 export async function transferUsdcFromWallet(
   from: UsdcWallet,
   toPublicKey: string,
-  amount: number
+  amount: number,
+  options?: { memo?: string }
 ): Promise<UsdcTransferResult> {
-  return submitUsdcTransfer(from, toPublicKey, amount, from.publicKey);
+  return submitUsdcTransfer(
+    from,
+    toPublicKey,
+    amount,
+    from.publicKey,
+    options?.memo
+  );
 }
