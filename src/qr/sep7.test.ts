@@ -4,6 +4,7 @@ import { Keypair } from "@stellar/stellar-sdk";
 import {
   cobroChatCaption,
   cobroWalletMsg,
+  cobroWhatsAppPayUrl,
   looksLikeLabReceiveCopy,
 } from "./cobro-copy";
 import { extractCobroToken } from "./cobro.store";
@@ -52,6 +53,16 @@ test("el URI de cobro lleva un mensaje en español, no el default en inglés", (
   const parsed = parseSep7PayUri(uri);
   assert.equal(parsed?.msg, "Te piden 15 dolares por Senda");
   assert.equal(looksLikeLabReceiveCopy(uri), false);
+});
+
+test("el boton Pagar abre WhatsApp, no un enlace web+stellar", () => {
+  const previous = process.env.WHATSAPP_CLICK_TO_CHAT;
+  process.env.WHATSAPP_CLICK_TO_CHAT = "15556186469";
+  const url = cobroWhatsAppPayUrl("https://senda-backend-2r5k.onrender.com/c/aabbcc");
+  assert.match(url, /^https:\/\/wa\.me\/15556186469\?text=/);
+  assert.equal(/web\+stellar/i.test(url), false);
+  if (previous === undefined) delete process.env.WHATSAPP_CLICK_TO_CHAT;
+  else process.env.WHATSAPP_CLICK_TO_CHAT = previous;
 });
 
 test("reconoce el enlace corto de cobro", () => {

@@ -27,3 +27,9 @@ export function formatCobroAmount(amount: number): string {
 export function looksLikeLabReceiveCopy(text: string): boolean {
   return /send tokens to my stellar address|no memo required/i.test(text);
 }
+
+export function cobroWhatsAppPayUrl(shareUrl: string): string {
+  const digits = (process.env.WHATSAPP_CLICK_TO_CHAT || "").replace(/\D/g, "");
+  const base = digits ? `https://wa.me/${digits}` : "https://wa.me/";
+  return `${base}?text=${encodeURIComponent(shareUrl)}`;
+}
