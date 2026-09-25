@@ -4,11 +4,17 @@ import { Networks } from "@stellar/stellar-sdk";
 import {
   AmountLimitError,
   SacUnconfirmedError,
+  pickReportedUsdcBalance,
   submitUsdcTransferOnce,
   toUsdcStroops,
 } from "./usdc.service";
 import { assertNetworkConsistency, getNetworkConfig } from "./stellar.service";
 import { classifyIntent } from "./intent.service";
+
+test("si SAC dice 0 y Horizon tiene saldo, se muestra el de Horizon", () => {
+  assert.equal(pickReportedUsdcBalance(0n, 50_000_000n), 50_000_000n);
+  assert.equal(pickReportedUsdcBalance(80_000_000n, 50_000_000n), 80_000_000n);
+});
 
 test("convierte USDC a stroops sin float sucio", () => {
   assert.equal(toUsdcStroops("10.5"), 105000000n);

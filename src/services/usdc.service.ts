@@ -179,10 +179,16 @@ export async function getHorizonUsdcBalance(publicKey: string): Promise<bigint> 
   }
 }
 
+export function pickReportedUsdcBalance(sac: bigint, horizon: bigint): bigint {
+  return sac > horizon ? sac : horizon;
+}
+
 export async function getUsdcBalance(publicKey: string): Promise<bigint> {
   const server = getRpcServer();
   const sacId = getUsdcSacId();
   const passphrase = getNetworkPassphrase();
+  let sac = 0n;
+  let sacResolved = false;
 
   try {
     const { result } = await server.queryContract<bigint | number | string>(
@@ -191,7 +197,8 @@ export async function getUsdcBalance(publicKey: string): Promise<bigint> {
       { id: publicKey },
       passphrase
     );
-    return BigInt(result);
+    sac = BigInt(result);
+    sacResolved = true;
   } catch {
     try {
       const account = await server.getAccount(publicKey);
@@ -211,16 +218,21 @@ export async function getUsdcBalance(publicKey: string): Promise<bigint> {
         rpc.Api.isSimulationSuccess(simulation) &&
         simulation.result?.retval
       ) {
-        return BigInt(scValToNative(simulation.result.retval));
+        sac = BigInt(scValToNative(simulation.result.retval));
+        sacResolved = true;
       }
     } catch (error) {
       if (!isAccountMissing(error)) {
         logSafeError("SAC balance", error);
       }
     }
-
-    return getHorizonUsdcBalance(publicKey);
   }
+
+  const horizon = await getHorizonUsdcBalance(publicKey);
+  if (sacResolved) {
+    return pickReportedUsdcBalance(sac, horizon);
+  }
+  return horizon;
 }
 
 export async function ensureUsdcTrustline(wallet: UsdcWallet): Promise<void> {
@@ -412,7 +424,14 @@ async function submitUsdcTransfer(
   const txHash = await submitUsdcTransferOnce(from, toPublicKey, amount);
   let balanceUsdc = fromUsdcStroops(stroops);
   try {
-    balanceUsdc = fromUsdcStroops(await getUsdcBalance(balanceOf));
+    let onChain = await getUsdcBalance(balanceOf);
+    if (onChain === 0n) {
+      await sleep(500);
+      onChain = await getUsdcBalance(balanceOf);
+    }
+    if (onChain > 0n) {
+      balanceUsdc = fromUsdcStroops(onChain);
+    }
   } catch (error) {
     if (!(error instanceof UsdcBalanceUnavailableError)) {
       throw error;
