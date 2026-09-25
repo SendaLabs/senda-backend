@@ -614,7 +614,7 @@ async function handleYieldPosition(to: string, name: string): Promise<void> {
       to,
       [
         `Lo que dejaste rindiendo ahora vale unos ${position.currentValueUsdc} dólares.`,
-        "Es tu parte de un pozo compartido de Senda. Si querés volver a tu saldo, escribí «sacar 10 de rendir».",
+        `Es tu parte de un pozo compartido de Senda. Si querés volver a tu saldo, escribí «sacar ${position.currentValueUsdc} de rendir».`,
       ].join("\n")
     );
   } catch (error) {
