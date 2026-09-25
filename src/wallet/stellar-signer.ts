@@ -12,7 +12,7 @@ export async function signStellarTransaction(
   account: SignableAccount,
   tx: Transaction
 ): Promise<void> {
-  if (usePrivyWallets() && account.privyWalletId) {
+  if (account.privyWalletId && usePrivyWallets()) {
     const signature = await signStellarHash(
       account.privyWalletId,
       Buffer.from(tx.hash())
