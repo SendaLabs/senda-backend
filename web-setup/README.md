@@ -5,7 +5,7 @@ link corto que manda WhatsApp (`/s/:token` → `/setup?token=`).
 
 1. Login SMS de Privy (`loginMethods: ['sms']`), mismo número de WhatsApp.
 2. `useCreateWallet({ chainType: 'stellar' })`.
-3. `addSigners()` con el session signer y la policy de gasto (500 / 2000 USDC).
+3. `addSigners()` con el session signer (la policy de gasto es opcional).
 4. `POST /api/link-wallet` en el backend.
 5. «Listo, volvé a WhatsApp» → `wa.me`.
 

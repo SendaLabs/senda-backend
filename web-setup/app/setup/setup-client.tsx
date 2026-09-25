@@ -10,10 +10,6 @@ import {
   getSpendPolicyId,
   getWhatsAppReturnUrl,
 } from "../../lib/env";
-import {
-  SENDA_MAX_USDC_PER_DAY,
-  SENDA_MAX_USDC_PER_TRANSACTION,
-} from "../../lib/spend-policy";
 
 type SetupInfo = {
   valid: boolean;
@@ -123,12 +119,12 @@ function SetupInner() {
     }
 
     const signerId = getSessionSignerId();
-    const policyId = getSpendPolicyId();
-    if (!signerId || !policyId) {
-      setError("Falta el session signer o la policy en el .env.local del sitio.");
+    if (!signerId) {
+      setError("Falta el session signer en el .env.local del sitio.");
       setScreen("error");
       return;
     }
+    const policyId = getSpendPolicyId();
 
     setBusy(true);
     setScreen("working");
@@ -149,7 +145,9 @@ function SetupInner() {
 
       await addSigners({
         address: wallet.address,
-        signers: [{ signerId, policyIds: [policyId] }],
+        signers: [
+          policyId ? { signerId, policyIds: [policyId] } : { signerId },
+        ],
       });
 
       const res = await fetch(`${api}/api/link-wallet`, {
@@ -208,8 +206,7 @@ function SetupInner() {
         <p>
           Ya podés volver a WhatsApp. En un momento te llega un mensajito de
           Senda. Después pedime lo que necesites, con tus palabras o una nota de
-          voz. Podemos mover hasta {SENDA_MAX_USDC_PER_TRANSACTION} dólares por
-          envío y {SENDA_MAX_USDC_PER_DAY} por día.
+          voz.
         </p>
         <p>
           <a className="button" href={wa}>
@@ -229,9 +226,8 @@ function SetupInner() {
         {info?.phoneHint ? ` (${info.phoneHint})` : ""}.
       </p>
       <p className="hint">
-        Después le das permiso a Senda para ayudarte a mover tu plata, con tope
-        de {SENDA_MAX_USDC_PER_TRANSACTION} dólares por envío y{" "}
-        {SENDA_MAX_USDC_PER_DAY} por día.
+        Después le das permiso a Senda para ayudarte a mover tu plata desde el
+        chat.
       </p>
       {error ? <p className="error">{error}</p> : null}
       {!authenticated ? (

@@ -14,7 +14,6 @@ test("Privy self-custodial exige alta web + session signer, no solo APP_ID", () 
     flag: process.env.USE_PRIVY_WALLETS,
     signerId: process.env.PRIVY_SESSION_SIGNER_ID,
     signerKey: process.env.PRIVY_SESSION_SIGNER_PRIVATE_KEY,
-    policy: process.env.PRIVY_SPEND_POLICY_ID,
     web: process.env.WEB_SETUP_PUBLIC_URL,
     nodeEnv: process.env.NODE_ENV,
   };
@@ -24,7 +23,6 @@ test("Privy self-custodial exige alta web + session signer, no solo APP_ID", () 
   delete process.env.USE_PRIVY_WALLETS;
   delete process.env.PRIVY_SESSION_SIGNER_ID;
   delete process.env.PRIVY_SESSION_SIGNER_PRIVATE_KEY;
-  delete process.env.PRIVY_SPEND_POLICY_ID;
   delete process.env.WEB_SETUP_PUBLIC_URL;
   process.env.NODE_ENV = "production";
 
@@ -39,7 +37,6 @@ test("Privy self-custodial exige alta web + session signer, no solo APP_ID", () 
 
   process.env.PRIVY_SESSION_SIGNER_ID = "quorum_1";
   process.env.PRIVY_SESSION_SIGNER_PRIVATE_KEY = "auth_key";
-  process.env.PRIVY_SPEND_POLICY_ID = "policy_1";
   process.env.WEB_SETUP_PUBLIC_URL = "http://localhost:3001";
   assert.equal(isUsableWebSetupUrl(), false);
   assert.equal(usePrivyWallets(), false);
@@ -62,8 +59,6 @@ test("Privy self-custodial exige alta web + session signer, no solo APP_ID", () 
   if (previous.signerKey === undefined) {
     delete process.env.PRIVY_SESSION_SIGNER_PRIVATE_KEY;
   } else process.env.PRIVY_SESSION_SIGNER_PRIVATE_KEY = previous.signerKey;
-  if (previous.policy === undefined) delete process.env.PRIVY_SPEND_POLICY_ID;
-  else process.env.PRIVY_SPEND_POLICY_ID = previous.policy;
   if (previous.web === undefined) delete process.env.WEB_SETUP_PUBLIC_URL;
   else process.env.WEB_SETUP_PUBLIC_URL = previous.web;
   if (previous.nodeEnv === undefined) delete process.env.NODE_ENV;

@@ -21,13 +21,12 @@ export function isUsableWebSetupUrl(raw?: string): boolean {
   }
 }
 
-/** Privy self-custodial solo si el alta web y el session signer existen de verdad. */
+/** Privy self-custodial si hay alta web + session signer. La policy de gasto es opcional. */
 export function isPrivySelfCustodyReady(): boolean {
   return Boolean(
     hasPrivyCredentials() &&
       process.env.PRIVY_SESSION_SIGNER_ID?.trim() &&
       process.env.PRIVY_SESSION_SIGNER_PRIVATE_KEY?.trim() &&
-      process.env.PRIVY_SPEND_POLICY_ID?.trim() &&
       isUsableWebSetupUrl()
   );
 }

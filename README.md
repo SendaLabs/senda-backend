@@ -8,7 +8,7 @@ Hecho para el **Argentina Builder Challenge (BAF × Stellar), categoría genesis
 
 Sobre lo que ya existía (saludo, saldo, envío P2P, retiro a efectivo `SENDA-xxx`):
 
-1. **Wallets MPC vía Privy, self-custodial.** El usuario nuevo recibe un link de un solo uso y abre su wallet **una vez** en `/web-setup` (login SMS con el mismo WhatsApp). Ahí crea la wallet Stellar y delega el session signer de Senda con tope de 500 USDC por envío y 2000 por día. El backend **no** crea la wallet. SEP-30 queda si `USE_PRIVY_WALLETS=false`.
+1. **Wallets MPC vía Privy, self-custodial.** El usuario nuevo recibe un link de un solo uso y abre su wallet **una vez** en `/web-setup` (login SMS con el mismo WhatsApp). Ahí crea la wallet Stellar y delega el session signer de Senda. El backend **no** crea la wallet. SEP-30 queda si `USE_PRIVY_WALLETS=false`.
 2. **Tesorería + Horizon Listener.** Cuenta pooled de Senda, trustline USDC, SSE de pagos con reconexión y backoff. Un depósito **no** se confirma hasta el evento de Horizon.
 3. **Retiro a Mercado Pago (nuestro “Bridge”).** Provider Router con un adapter SEP-24 (`testanchor.stellar.org` en dev). Completo solo si confirman **el ancla y Horizon**. WhatsApp avisa cada estado.
 4. **Ahorro pooled vía Blend v2.** Una tesorería deposita en Blend. El share de cada usuario vive en `YieldPosition` (off-chain). Cron horario + reconciliación diaria. Si el pool está muy usado, se bloquean depósitos.
@@ -20,7 +20,7 @@ Foto previa de este trabajo: [`AUDIT.md`](./AUDIT.md).
 
 | Producto | Modelo |
 |---|---|
-| Saldo diario (enviar, recibir, efectivo, MP, cobros) | Wallet Privy del usuario + session signer de Senda (policy de gasto). Fallback SEP-30 si Privy está apagado |
+| Saldo diario (enviar, recibir, efectivo, MP, cobros) | Wallet Privy del usuario + session signer de Senda. Fallback SEP-30 si Privy está apagado |
 | Rendimiento Blend | **Pooled**: una posición on-chain de Senda. El share se trackea off-chain y se reconcilia |
 
 ## Cómo hablarle al bot
@@ -101,7 +101,7 @@ No hay tareas “a medias” en el código. Lo que no llega a producción está 
 |---|---|
 | `PRIVY_APP_ID` / `PRIVY_APP_SECRET` | Activan el flujo Privy (salvo `USE_PRIVY_WALLETS=false`) |
 | `PRIVY_SESSION_SIGNER_ID` / `PRIVY_SESSION_SIGNER_PRIVATE_KEY` | Session signer delegado en `/setup` |
-| `PRIVY_SPEND_POLICY_ID` | Policy del dashboard (500 USDC/tx, 2000/día) |
+| `PRIVY_SPEND_POLICY_ID` | Opcional. Policy de gasto del dashboard |
 | `WEB_SETUP_PUBLIC_URL` / `WEB_SETUP_ORIGIN` | Mini sitio de alta + CORS |
 | `WHATSAPP_CLICK_TO_CHAT` | Número para el `wa.me` de regreso |
 | `STELLAR_TREASURY_SECRET_KEY` | Tesorería pooled. Si falta, usa `STELLAR_SECRET_KEY` |
