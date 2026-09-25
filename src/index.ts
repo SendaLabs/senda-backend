@@ -16,6 +16,7 @@ import { assertRuntimeSecrets } from "./services/custody-secrets.service";
 import { reconcileOfframpOrders } from "./services/offramp.service";
 import { resumePendingSep24Withdrawals } from "./services/sep24-withdraw.service";
 import { hasPrivyCredentials, isPrivySelfCustodyReady } from "./config/flags";
+import { mountCobroRoutes } from "./qr/cobro.routes";
 import { mountSetupRoutes } from "./wallet/setup.routes";
 import { startHorizonListener } from "./stellar/horizon-listener";
 import { ensureTreasuryUsdcTrustline } from "./stellar/treasury";
@@ -64,6 +65,7 @@ app.get("/media/welcome.mp4", (_req: Request, res: Response) => {
 });
 
 mountSetupRoutes(app);
+mountCobroRoutes(app);
 
 app.get("/health", (_req: Request, res: Response) => {
   res.json({

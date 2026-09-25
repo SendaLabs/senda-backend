@@ -41,6 +41,10 @@ test("el guion del sábado entra a cada flujo", () => {
     ).type,
     "sep7_pay"
   );
+  assert.equal(
+    classifyIntent("https://ejemplo.com/c/aabbccddeeff00112233445566778899").type,
+    "sep7_pay"
+  );
 });
 
 test("un monto suelto no se acredita como envío", () => {

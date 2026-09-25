@@ -1,5 +1,6 @@
 import QRCode from "qrcode";
 import { getUsdcAsset } from "../services/usdc.service";
+import { cobroWalletMsg } from "./cobro-copy";
 
 export interface Sep7PayRequest {
   destination: string;
@@ -41,7 +42,7 @@ export function buildSendaCobroUri(
     amount: amount !== undefined ? String(amount) : undefined,
     assetCode: asset.code,
     assetIssuer: asset.issuer,
-    msg: "Cobro Senda",
+    msg: cobroWalletMsg(amount),
   });
 }
 
