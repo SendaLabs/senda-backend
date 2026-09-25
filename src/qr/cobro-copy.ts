@@ -5,7 +5,21 @@ export function cobroWalletMsg(amount?: number): string {
   return "Te piden plata por Senda";
 }
 
-export function cobroChatCaption(amount?: number): string {
+export function cobroChatCaption(
+  amount?: number,
+  locale: "es" | "en" = "es"
+): string {
+  if (locale === "en") {
+    const head =
+      amount !== undefined
+        ? `This is your ${formatCobroAmount(amount)}-dollar charge.`
+        : "This is your charge.";
+    return [
+      head,
+      "Send this photo or the link below to whoever should pay you.",
+      "If they scan the code, a Senda page opens. If they also use the chat, they can paste the link.",
+    ].join("\n");
+  }
   const head =
     amount !== undefined
       ? `Este es tu cobro de ${formatCobroAmount(amount)} dólares.`

@@ -1,8 +1,51 @@
+import {
+  askAmount,
+  askCobroAmount,
+  askMpAmount,
+  askWithdrawAmount,
+  askYieldSupplyAmount,
+  askYieldWithdrawAmount,
+  balanceHintText,
+  balanceReadyText,
+  balanceYieldingText,
+  cobroBadLinkText,
+  cobroNeedAmountText,
+  cobroOwnLinkText,
+  cobroPaidText,
+  cobroPayNeedAmountText,
+  cobroPayingText,
+  isAnyAmount,
+  missingAmountText,
+  mpProcessingText,
+  mpReadyText,
+  sendDuplicateText,
+  sendMaxText,
+  sendProcessingText,
+  sendReceiptText,
+  startSendText,
+  withdrawAmountPickedText,
+  withdrawInsufficientText,
+  withdrawMaxText,
+  withdrawNoneText,
+  withdrawPendingText,
+  withdrawProcessingText,
+  withdrawReadyText,
+  withdrawStartWithPartnerText,
+  yieldMaxText,
+  yieldNoneText,
+  yieldPositionText,
+  yieldSupplyProcessingText,
+  yieldSupplyReadyText,
+  yieldWithdrawProcessingText,
+  yieldWithdrawReadyText,
+} from "../i18n/copy";
+import { detectLocale, isGreeting, type Locale } from "../i18n/locale";
 import { maybeInviteWalletSetup } from "../wallet/wallet-setup";
 import {
   ConversationStep,
   getSession,
   setSession,
+  type ConversationSession,
 } from "./session.service";
 import {
   classifyIntent,
@@ -60,30 +103,22 @@ import {
 
 let currentMessageId: string | undefined;
 
-const ASK_AMOUNT =
-  "¿Cuánto querés enviar? Podés escribir 10, «20 dólares» o «mandar 15 USDC».";
-
-const ASK_WITHDRAW_AMOUNT =
-  "¿Cuánto querés retirar en efectivo? Por ejemplo 20 o «15 dólares».";
-
-const ASK_MP_AMOUNT =
-  "¿Cuánto querés pasar a Mercado Pago? Por ejemplo 20 o «15 dólares».";
-
-const ASK_YIELD_SUPPLY_AMOUNT =
-  "¿Cuánto querés poner a rendir? Por ejemplo 10 o «20 dólares».";
-
-const ASK_YIELD_WITHDRAW_AMOUNT =
-  "¿Cuánto querés sacar de lo que está rindiendo? Por ejemplo 10.";
-
-const ASK_COBRO_AMOUNT =
-  "¿De cuánto es el cobro? Por ejemplo 15. Si no importa el monto, escribí «cualquiera».";
-
 const MAX_USDC_PER_SEND = 500;
 
-function isGreeting(text: string): boolean {
-  return /^(hola+|holis|buenas|buen\s+dia|buenos\s+dias|buenas\s+tardes|buenas\s+noches|hey|que\s+tal|como\s+estas)$/.test(
-    normalizeText(text)
-  );
+function localeOf(phone: string, fallback: Locale = "es"): Locale {
+  return getSession(phone)?.locale ?? fallback;
+}
+
+function rememberLocale(phone: string, text: string, name: string): Locale {
+  const detected = detectLocale(text);
+  const locale = detected ?? localeOf(phone);
+  const current = getSession(phone);
+  if (current) {
+    if (current.locale !== locale || current.name !== name) {
+      setSession(phone, { ...current, name, locale });
+    }
+  }
+  return locale;
 }
 
 function formatUsdcLabel(amount: number): string {
@@ -93,14 +128,19 @@ function formatUsdcLabel(amount: number): string {
   return amount.toFixed(2).replace(/\.?0+$/, "");
 }
 
-function guideUser(name: string): string {
-  return welcomeMenuText(name);
+function guideUser(name: string, locale: Locale = "es"): string {
+  return welcomeMenuText(name, locale);
 }
 
 function idleSession(
   name: string,
-  extras?: { pendingAmount?: number; pendingPartner?: OfframpPartnerId }
-) {
+  extras?: {
+    pendingAmount?: number;
+    pendingPartner?: OfframpPartnerId;
+    locale?: Locale;
+    pendingDestination?: string;
+  }
+): ConversationSession {
   return {
     step: ConversationStep.AWAITING_MENU_OPTION,
     name,
@@ -108,9 +148,26 @@ function idleSession(
   };
 }
 
-async function sendMenu(to: string, name: string): Promise<void> {
-  await sendWhatsAppMessage(to, welcomeMenuText(name));
-  setSession(to, idleSession(name));
+function saveSession(
+  to: string,
+  name: string,
+  patch: Partial<ConversationSession> = {}
+): ConversationSession {
+  return setSession(to, {
+    step: ConversationStep.AWAITING_MENU_OPTION,
+    name,
+    locale: localeOf(to),
+    ...patch,
+  });
+}
+
+async function sendMenu(
+  to: string,
+  name: string,
+  locale: Locale = "es"
+): Promise<void> {
+  await sendWhatsAppMessage(to, welcomeMenuText(name, locale));
+  setSession(to, idleSession(name, { locale }));
 }
 
 function sleep(ms: number): Promise<void> {
@@ -133,20 +190,22 @@ async function sendWelcomeVideoOrCaption(
   }
 }
 
-export async function sendWelcomeFlow(to: string, name: string): Promise<void> {
-  const caption = welcomeVideoCaption(name);
+export async function sendWelcomeFlow(
+  to: string,
+  name: string,
+  locale: Locale = "es"
+): Promise<void> {
+  const caption = welcomeVideoCaption(name, locale);
   await sendWelcomeVideoOrCaption(to, caption);
   // WhatsApp entrega el texto antes que el video si van pegados.
   await sleep(2800);
-  await sendMenu(to, name);
+  await sendMenu(to, name, locale);
 }
 
 async function startSendFlow(to: string, name: string): Promise<void> {
-  setSession(to, { step: ConversationStep.AWAITING_USD_AMOUNT, name });
-  await sendWhatsAppMessage(
-    to,
-    `Dale, te armo el envío al toque.\n\n${ASK_AMOUNT}`
-  );
+  const locale = localeOf(to);
+  saveSession(to, name, { step: ConversationStep.AWAITING_USD_AMOUNT });
+  await sendWhatsAppMessage(to, startSendText(locale));
 }
 
 async function startWithdrawFlow(
@@ -155,34 +214,37 @@ async function startWithdrawFlow(
   amount: number | null,
   partner: OfframpPartnerId | null
 ): Promise<void> {
+  const locale = localeOf(to);
   if (amount !== null && partner) {
     await executeCashWithdrawal(to, name, amount, partner);
     return;
   }
 
   if (amount !== null) {
-    setSession(to, {
+    saveSession(to, name, {
       step: ConversationStep.AWAITING_WITHDRAW_PARTNER,
-      name,
       pendingAmount: amount,
     });
     await sendWhatsAppMessage(
       to,
-      `Perfecto, retiro de ${formatUsdcLabel(amount)} dólares.\n\n${partnerPrompt()}`
+      withdrawAmountPickedText(
+        locale,
+        formatUsdcLabel(amount),
+        partnerPrompt(locale)
+      )
     );
     return;
   }
 
-  setSession(to, {
+  saveSession(to, name, {
     step: ConversationStep.AWAITING_WITHDRAW_AMOUNT,
-    name,
     pendingPartner: partner ?? undefined,
   });
   await sendWhatsAppMessage(
     to,
     partner
-      ? `Dale, te armo el retiro. ${ASK_WITHDRAW_AMOUNT}`
-      : ASK_WITHDRAW_AMOUNT
+      ? withdrawStartWithPartnerText(locale, askWithdrawAmount(locale))
+      : askWithdrawAmount(locale)
   );
 }
 
@@ -192,18 +254,16 @@ async function executeUsdcTransfer(
   usdAmount: number
 ): Promise<void> {
   const messageId = currentMessageId;
+  const locale = localeOf(to);
   if (usdAmount > MAX_USDC_PER_SEND) {
-    setSession(to, { step: ConversationStep.AWAITING_USD_AMOUNT, name });
-    await sendWhatsAppMessage(
-      to,
-      `Por ahora el máximo por envío es ${MAX_USDC_PER_SEND} USDC. Decime otro monto.`
-    );
+    saveSession(to, name, { step: ConversationStep.AWAITING_USD_AMOUNT });
+    await sendWhatsAppMessage(to, sendMaxText(locale, MAX_USDC_PER_SEND));
     return;
   }
 
   await sendWhatsAppMessage(
     to,
-    `¡Listo! Procesando tu envío de ${formatUsdcLabel(usdAmount)} USDC a través de Senda...`
+    sendProcessingText(locale, formatUsdcLabel(usdAmount))
   );
 
   try {
@@ -231,21 +291,13 @@ async function executeUsdcTransfer(
         txHash: credited.usdcTxHash,
       };
     });
-    setSession(to, idleSession(name));
+    saveSession(to, name);
 
     const proof =
       result.txHash && !result.duplicate ? explorerTxUrl(result.txHash) : "";
     const receipt = result.duplicate
-      ? "Ese envío ya lo habíamos acreditado. Pedime el saldo si querés confirmarlo."
-      : [
-          `Listo 💸 Ya acreditamos ${result.amountUsdc} USDC en tu cuenta.`,
-          `Ahora tenés ${result.usdcBalance} USDC.`,
-          proof ? `Comprobante: ${proof}` : "",
-          "",
-          "Si querés, pedime el saldo, mandá otro monto, retiralo en efectivo o pasalo a Mercado Pago.",
-        ]
-          .filter((line, index, lines) => line !== "" || lines[index + 1] !== "")
-          .join("\n");
+      ? sendDuplicateText(locale)
+      : sendReceiptText(locale, result.amountUsdc, result.usdcBalance, proof);
     try {
       await sendWhatsAppMessage(to, receipt);
       await clearPendingAck(to);
@@ -255,7 +307,7 @@ async function executeUsdcTransfer(
     }
   } catch (error) {
     logSafeError("Error al acreditar", error);
-    setSession(to, { step: ConversationStep.AWAITING_USD_AMOUNT, name });
+    saveSession(to, name, { step: ConversationStep.AWAITING_USD_AMOUNT });
     await sendWhatsAppMessage(to, humanizeLedgerError(error));
   }
 }
@@ -266,22 +318,19 @@ async function executeCashWithdrawal(
   amount: number,
   partner: OfframpPartnerId
 ): Promise<void> {
+  const locale = localeOf(to);
   if (amount > MAX_USDC_PER_SEND) {
-    setSession(to, {
+    saveSession(to, name, {
       step: ConversationStep.AWAITING_WITHDRAW_AMOUNT,
-      name,
       pendingPartner: partner,
     });
-    await sendWhatsAppMessage(
-      to,
-      `Por ahora el máximo por retiro es ${MAX_USDC_PER_SEND} dólares. Decime otro monto.`
-    );
+    await sendWhatsAppMessage(to, withdrawMaxText(locale, MAX_USDC_PER_SEND));
     return;
   }
 
   await sendWhatsAppMessage(
     to,
-    `¡Listo! Reservando ${formatUsdcLabel(amount)} USDC para tu retiro en efectivo...`
+    withdrawProcessingText(locale, formatUsdcLabel(amount))
   );
 
   try {
@@ -289,32 +338,32 @@ async function executeCashWithdrawal(
       createCashWithdrawal(to, amount, partner)
     );
     const remaining = await getSpendableUsdc(to);
-    setSession(to, idleSession(name));
+    saveSession(to, name);
 
     await sendWhatsAppMessage(
       to,
-      [
-        `Listo 💵 Ya dejamos aparte ${order.amountUsdc} dólares para que los retires.`,
-        "",
-        `Red: ${order.partnerLabel}`,
-        `Código: ${order.pickupCode}`,
+      withdrawReadyText(
+        locale,
+        order.amountUsdc,
+        order.partnerLabel,
+        order.pickupCode,
         order.locationHint,
-        "Llevá tu documento. El código vale 48 horas.",
-        order.txHash ? `Comprobante: ${explorerTxUrl(order.txHash)}` : "",
-        "",
-        `Tu saldo ahora es ${remaining} USDC.`,
-      ]
-        .filter((line, index, lines) => line !== "" || lines[index + 1] !== "")
-        .join("\n")
+        order.txHash ? explorerTxUrl(order.txHash) : "",
+        remaining
+      )
     );
   } catch (error) {
     logSafeError("Error en retiro en efectivo", error);
-    setSession(to, idleSession(name));
+    saveSession(to, name);
 
     if (error instanceof OfframpInsufficientFundsError) {
       await sendWhatsAppMessage(
         to,
-        `No te alcanza el saldo para retirar ${formatUsdcLabel(error.requested)} dólares. Ahora tenés ${error.available} USDC.`
+        withdrawInsufficientText(
+          locale,
+          formatUsdcLabel(error.requested),
+          error.available
+        )
       );
       return;
     }
@@ -332,7 +381,7 @@ async function handleUsdAmount(
   if (usdAmount === null) {
     await sendWhatsAppMessage(
       to,
-      `No vi un monto en lo que escribiste. ${ASK_AMOUNT}`
+      missingAmountText(localeOf(to), askAmount(localeOf(to)))
     );
     return;
   }
@@ -341,7 +390,8 @@ async function handleUsdAmount(
 }
 
 async function handleBalanceQuery(to: string, name: string): Promise<void> {
-  setSession(to, idleSession(name));
+  const locale = localeOf(to);
+  saveSession(to, name);
 
   try {
     const state = await getUserOnChainState(to);
@@ -352,16 +402,11 @@ async function handleBalanceQuery(to: string, name: string): Promise<void> {
     } catch (error) {
       logSafeError("Saldo: no se pudo leer lo que rinde", error);
     }
-    const lines = [`Tenés ${balance} USDC listos para usar.`];
+    const lines = [balanceReadyText(locale, balance)];
     if (isPositiveUsdcAmount(yielding)) {
-      lines.push(
-        `Además tenés ${yielding} rindiendo. Si los querés de vuelta, escribí «sacar ${yielding} de rendir».`
-      );
+      lines.push(balanceYieldingText(locale, yielding));
     }
-    lines.push(
-      "",
-      "Si querés enviar, escribí «mandar 10». Si querés efectivo, «retirar 15 en MoneyGram». También: Mercado Pago, poner a rendir o «generame un link de cobro»."
-    );
+    lines.push("", balanceHintText(locale));
     await sendWhatsAppMessage(to, lines.join("\n"));
   } catch (error) {
     logSafeError("Error al consultar saldo", error);
@@ -370,24 +415,23 @@ async function handleBalanceQuery(to: string, name: string): Promise<void> {
 }
 
 async function handleWithdrawStatus(to: string, name: string): Promise<void> {
-  setSession(to, idleSession(name));
+  const locale = localeOf(to);
+  saveSession(to, name);
   const order = getOpenCashWithdrawal(to);
   if (!order) {
-    await sendWhatsAppMessage(
-      to,
-      "No tenés un retiro pendiente. Si querés efectivo, escribí «retirar 20 en MoneyGram»."
-    );
+    await sendWhatsAppMessage(to, withdrawNoneText(locale));
     return;
   }
 
   await sendWhatsAppMessage(
     to,
-    [
-      `Tu retiro de ${order.amountUsdc} dólares sigue pendiente.`,
-      `Red: ${order.partnerLabel}`,
-      `Código: ${order.pickupCode}`,
-      order.locationHint,
-    ].join("\n")
+    withdrawPendingText(
+      locale,
+      order.amountUsdc,
+      order.partnerLabel,
+      order.pickupCode,
+      order.locationHint
+    )
   );
 }
 
@@ -396,43 +440,33 @@ async function startMercadoPagoFlow(
   name: string,
   amount: number | null
 ): Promise<void> {
+  const locale = localeOf(to);
   if (amount === null) {
-    setSession(to, { step: ConversationStep.AWAITING_MP_AMOUNT, name });
-    await sendWhatsAppMessage(to, ASK_MP_AMOUNT);
+    saveSession(to, name, { step: ConversationStep.AWAITING_MP_AMOUNT });
+    await sendWhatsAppMessage(to, askMpAmount(locale));
     return;
   }
 
   if (amount > MAX_USDC_PER_SEND) {
-    setSession(to, { step: ConversationStep.AWAITING_MP_AMOUNT, name });
-    await sendWhatsAppMessage(
-      to,
-      `Por ahora el máximo por retiro es ${MAX_USDC_PER_SEND} dólares. Decime otro monto.`
-    );
+    saveSession(to, name, { step: ConversationStep.AWAITING_MP_AMOUNT });
+    await sendWhatsAppMessage(to, withdrawMaxText(locale, MAX_USDC_PER_SEND));
     return;
   }
 
   await sendWhatsAppMessage(
     to,
-    `Dale, te armo el retiro de ${formatUsdcLabel(amount)} dólares a Mercado Pago...`
+    mpProcessingText(locale, formatUsdcLabel(amount))
   );
 
   try {
     const started = await withPhoneLock(to, () =>
       startMercadoPagoWithdraw(to, amount)
     );
-    setSession(to, idleSession(name));
-    await sendWhatsAppMessage(
-      to,
-      [
-        "Listo. Abrí este enlace para completar el retiro en Mercado Pago:",
-        started.url,
-        "",
-        "Cuando esté, te aviso por acá.",
-      ].join("\n")
-    );
+    saveSession(to, name);
+    await sendWhatsAppMessage(to, mpReadyText(locale, started.url));
   } catch (error) {
     logSafeError("Error en retiro Mercado Pago", error);
-    setSession(to, idleSession(name));
+    saveSession(to, name);
     await sendWhatsAppMessage(to, humanizeLedgerError(error));
   }
 }
@@ -442,42 +476,43 @@ async function startYieldSupplyFlow(
   name: string,
   amount: number | null
 ): Promise<void> {
+  const locale = localeOf(to);
   if (amount === null) {
-    setSession(to, { step: ConversationStep.AWAITING_YIELD_SUPPLY_AMOUNT, name });
-    await sendWhatsAppMessage(to, ASK_YIELD_SUPPLY_AMOUNT);
+    saveSession(to, name, {
+      step: ConversationStep.AWAITING_YIELD_SUPPLY_AMOUNT,
+    });
+    await sendWhatsAppMessage(to, askYieldSupplyAmount(locale));
     return;
   }
 
   if (amount > MAX_USDC_PER_SEND) {
-    setSession(to, { step: ConversationStep.AWAITING_YIELD_SUPPLY_AMOUNT, name });
-    await sendWhatsAppMessage(
-      to,
-      `Por ahora el máximo es ${MAX_USDC_PER_SEND} dólares. Decime otro monto.`
-    );
+    saveSession(to, name, {
+      step: ConversationStep.AWAITING_YIELD_SUPPLY_AMOUNT,
+    });
+    await sendWhatsAppMessage(to, yieldMaxText(locale, MAX_USDC_PER_SEND));
     return;
   }
 
   await sendWhatsAppMessage(
     to,
-    `Perfecto, poniendo ${formatUsdcLabel(amount)} dólares a rendir...`
+    yieldSupplyProcessingText(locale, formatUsdcLabel(amount))
   );
 
   try {
     const result = await withPhoneLock(to, () => supplyToBlend(to, amount));
-    setSession(to, idleSession(name));
+    saveSession(to, name);
     await sendWhatsAppMessage(
       to,
-      [
-        `Listo 📈 Ya dejamos ${formatUsdcLabel(amount)} dólares rindiendo.`,
-        `Ahí tenés aproximadamente ${result.valueUsdc} dólares.`,
-        result.txHash ? `Comprobante: ${explorerTxUrl(result.txHash)}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n")
+      yieldSupplyReadyText(
+        locale,
+        formatUsdcLabel(amount),
+        result.valueUsdc,
+        result.txHash ? explorerTxUrl(result.txHash) : ""
+      )
     );
   } catch (error) {
     logSafeError("Error al poner a rendir", error);
-    setSession(to, idleSession(name));
+    saveSession(to, name);
     if (error instanceof YieldDepositsBlockedError) {
       await sendWhatsAppMessage(to, error.message);
       return;
@@ -491,36 +526,35 @@ async function startYieldWithdrawFlow(
   name: string,
   amount: number | null
 ): Promise<void> {
+  const locale = localeOf(to);
   if (amount === null) {
-    setSession(to, {
+    saveSession(to, name, {
       step: ConversationStep.AWAITING_YIELD_WITHDRAW_AMOUNT,
-      name,
     });
-    await sendWhatsAppMessage(to, ASK_YIELD_WITHDRAW_AMOUNT);
+    await sendWhatsAppMessage(to, askYieldWithdrawAmount(locale));
     return;
   }
 
   await sendWhatsAppMessage(
     to,
-    `Sacando ${formatUsdcLabel(amount)} dólares de lo que está rindiendo...`
+    yieldWithdrawProcessingText(locale, formatUsdcLabel(amount))
   );
 
   try {
     const result = await withPhoneLock(to, () => withdrawFromBlend(to, amount));
-    setSession(to, idleSession(name));
+    saveSession(to, name);
     await sendWhatsAppMessage(
       to,
-      [
-        `Listo. Ya volvieron ${formatUsdcLabel(amount)} dólares a tu saldo.`,
-        `Te quedan aproximadamente ${result.valueUsdc} dólares rindiendo.`,
-        result.txHash ? `Comprobante: ${explorerTxUrl(result.txHash)}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n")
+      yieldWithdrawReadyText(
+        locale,
+        formatUsdcLabel(amount),
+        result.valueUsdc,
+        result.txHash ? explorerTxUrl(result.txHash) : ""
+      )
     );
   } catch (error) {
     logSafeError("Error al sacar de rendir", error);
-    setSession(to, idleSession(name));
+    saveSession(to, name);
     await sendWhatsAppMessage(to, humanizeLedgerError(error));
   }
 }
@@ -531,8 +565,8 @@ async function startCobroFlow(
   amount: number | null
 ): Promise<void> {
   if (amount === null) {
-    setSession(to, { step: ConversationStep.AWAITING_COBRO_AMOUNT, name });
-    await sendWhatsAppMessage(to, ASK_COBRO_AMOUNT);
+    saveSession(to, name, { step: ConversationStep.AWAITING_COBRO_AMOUNT });
+    await sendWhatsAppMessage(to, askCobroAmount(localeOf(to)));
     return;
   }
   await sendCobroLink(to, name, amount);
@@ -551,8 +585,13 @@ async function sendCobroLink(
   const shareUrl = cobroPublicUrl(cobro.token);
   const png = await renderSep7QrPng(shareUrl);
 
-  setSession(to, idleSession(name));
-  await sendWhatsAppImage(to, png, cobroChatCaption(amount), "cobro-senda.png");
+  saveSession(to, name);
+  await sendWhatsAppImage(
+    to,
+    png,
+    cobroChatCaption(amount, localeOf(to)),
+    "cobro-senda.png"
+  );
   await sendWhatsAppMessage(to, shareUrl);
 }
 
@@ -574,83 +613,68 @@ async function paySep7Link(
   text: string,
   amountOverride?: number
 ): Promise<void> {
+  const locale = localeOf(to);
   const parsed = resolveCobroPayment(text);
   if (!parsed) {
-    await sendWhatsAppMessage(
-      to,
-      "No pude leer ese link de cobro. Pedile a la otra persona que te lo mande de nuevo."
-    );
+    await sendWhatsAppMessage(to, cobroBadLinkText(locale));
     return;
   }
 
   const payer = await getOrCreateUserAccount(to);
   if (parsed.destination === payer.publicKey) {
-    setSession(to, idleSession(name));
-    await sendWhatsAppMessage(
-      to,
-      "Ese link de cobro es tuyo. Mandáselo a la otra persona para que te pague."
-    );
+    saveSession(to, name);
+    await sendWhatsAppMessage(to, cobroOwnLinkText(locale));
     return;
   }
 
   const amount = amountOverride ?? Number(parsed.amount);
   if (!Number.isFinite(amount) || amount <= 0) {
-    setSession(to, {
+    saveSession(to, name, {
       step: ConversationStep.AWAITING_SEP7_AMOUNT,
-      name,
       pendingDestination: parsed.destination,
     });
-    await sendWhatsAppMessage(
-      to,
-      "El link no trae monto. ¿Cuánto querés pagar? Por ejemplo 10."
-    );
+    await sendWhatsAppMessage(to, cobroNeedAmountText(locale));
     return;
   }
 
   await sendWhatsAppMessage(
     to,
-    `Pago de ${formatUsdcLabel(amount)} dólares en camino...`
+    cobroPayingText(locale, formatUsdcLabel(amount))
   );
 
   try {
     const result = await withPhoneLock(to, () =>
       transferUsdcFromWallet(payer, parsed.destination, amount)
     );
-    setSession(to, idleSession(name));
+    saveSession(to, name);
     await sendWhatsAppMessage(
       to,
-      [
-        `Listo. Ya pagaste ${result.amountUsdc} dólares.`,
-        `Tu saldo ahora es ${result.balanceUsdc} USDC.`,
-        result.txHash ? `Comprobante: ${explorerTxUrl(result.txHash)}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n")
+      cobroPaidText(
+        locale,
+        result.amountUsdc,
+        result.balanceUsdc,
+        result.txHash ? explorerTxUrl(result.txHash) : ""
+      )
     );
   } catch (error) {
     logSafeError("Error al pagar SEP-7", error);
-    setSession(to, idleSession(name));
+    saveSession(to, name);
     await sendWhatsAppMessage(to, humanizeLedgerError(error));
   }
 }
 
 async function handleYieldPosition(to: string, name: string): Promise<void> {
-  setSession(to, idleSession(name));
+  const locale = localeOf(to);
+  saveSession(to, name);
   try {
     const position = await getBlendPosition(to);
     if (!isPositiveUsdcAmount(position.currentValueUsdc)) {
-      await sendWhatsAppMessage(
-        to,
-        "No tenés plata rindiendo ahora. Si querés poner, escribí «poner 5 a rendir»."
-      );
+      await sendWhatsAppMessage(to, yieldNoneText(locale));
       return;
     }
     await sendWhatsAppMessage(
       to,
-      [
-        `Lo que dejaste rindiendo ahora vale unos ${position.currentValueUsdc} dólares.`,
-        `Es tu parte de un pozo compartido de Senda. Si querés volver a tu saldo, escribí «sacar ${position.currentValueUsdc} de rendir».`,
-      ].join("\n")
+      yieldPositionText(locale, position.currentValueUsdc)
     );
   } catch (error) {
     logSafeError("Error al consultar rendimiento", error);
@@ -725,13 +749,13 @@ async function dispatchIntent(
       return;
     case "menu":
       if (isGreeting(text)) {
-        await sendWelcomeFlow(to, name);
+        await sendWelcomeFlow(to, name, localeOf(to));
         return;
       }
-      await sendMenu(to, name);
+      await sendMenu(to, name, localeOf(to));
       return;
     case "unknown":
-      await sendWhatsAppMessage(to, guideUser(name));
+      await sendWhatsAppMessage(to, guideUser(name, localeOf(to)));
       return;
   }
 }
@@ -761,9 +785,11 @@ async function handleIncomingWhatsAppMessageInner(
   name: string,
   text: string
 ): Promise<void> {
-  const setupInvite = await maybeInviteWalletSetup(from, name);
+  const locale = rememberLocale(from, text, name);
+  const setupInvite = await maybeInviteWalletSetup(from, name, locale);
   if (setupInvite) {
-    await sendWelcomeVideoOrCaption(from, welcomeVideoCaption(name));
+    saveSession(from, name, { locale });
+    await sendWelcomeVideoOrCaption(from, welcomeVideoCaption(name, locale));
     await sleep(2800);
     await sendWhatsAppMessage(from, setupInvite);
     return;
@@ -781,12 +807,12 @@ async function handleIncomingWhatsAppMessageInner(
   const intent = classifyIntent(text);
 
   if (!session) {
+    saveSession(from, name, { locale });
     if (intent.type === "unknown" || intent.type === "menu") {
-      await sendWelcomeFlow(from, name);
+      await sendWelcomeFlow(from, name, locale);
       return;
     }
 
-    setSession(from, idleSession(name));
     await dispatchIntent(from, name, text);
     return;
   }
@@ -828,7 +854,7 @@ async function handleIncomingWhatsAppMessageInner(
     if (amount === null) {
       await sendWhatsAppMessage(
         from,
-        `No vi un monto en lo que escribiste. ${ASK_WITHDRAW_AMOUNT}`
+        missingAmountText(locale, askWithdrawAmount(locale))
       );
       return;
     }
@@ -842,7 +868,7 @@ async function handleIncomingWhatsAppMessageInner(
     const partner = extractPartner(text);
 
     if (!partner) {
-      await sendWhatsAppMessage(from, partnerPrompt());
+      await sendWhatsAppMessage(from, partnerPrompt(locale));
       return;
     }
 
@@ -860,7 +886,7 @@ async function handleIncomingWhatsAppMessageInner(
     if (amount === null) {
       await sendWhatsAppMessage(
         from,
-        `No vi un monto en lo que escribiste. ${ASK_MP_AMOUNT}`
+        missingAmountText(locale, askMpAmount(locale))
       );
       return;
     }
@@ -873,7 +899,7 @@ async function handleIncomingWhatsAppMessageInner(
     if (amount === null) {
       await sendWhatsAppMessage(
         from,
-        `No vi un monto en lo que escribiste. ${ASK_YIELD_SUPPLY_AMOUNT}`
+        missingAmountText(locale, askYieldSupplyAmount(locale))
       );
       return;
     }
@@ -882,7 +908,7 @@ async function handleIncomingWhatsAppMessageInner(
   }
 
   if (session.step === ConversationStep.AWAITING_COBRO_AMOUNT) {
-    if (/^(cualquiera|sin monto|da igual|no importa)$/i.test(normalizeText(text))) {
+    if (isAnyAmount(normalizeText(text))) {
       await sendCobroLink(from, session.name);
       return;
     }
@@ -890,7 +916,7 @@ async function handleIncomingWhatsAppMessageInner(
     if (amount === null) {
       await sendWhatsAppMessage(
         from,
-        `No vi un monto en lo que escribiste. ${ASK_COBRO_AMOUNT}`
+        missingAmountText(locale, askCobroAmount(locale))
       );
       return;
     }
@@ -901,10 +927,7 @@ async function handleIncomingWhatsAppMessageInner(
   if (session.step === ConversationStep.AWAITING_SEP7_AMOUNT) {
     const amount = extractUsdAmount(text);
     if (amount === null || !session.pendingDestination) {
-      await sendWhatsAppMessage(
-        from,
-        "No vi un monto. Decime cuánto querés pagar, por ejemplo 10."
-      );
+      await sendWhatsAppMessage(from, cobroPayNeedAmountText(locale));
       return;
     }
     await paySep7Link(
@@ -921,7 +944,7 @@ async function handleIncomingWhatsAppMessageInner(
     if (amount === null) {
       await sendWhatsAppMessage(
         from,
-        `No vi un monto en lo que escribiste. ${ASK_YIELD_WITHDRAW_AMOUNT}`
+        missingAmountText(locale, askYieldWithdrawAmount(locale))
       );
       return;
     }

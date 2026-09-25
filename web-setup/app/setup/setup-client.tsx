@@ -2,20 +2,14 @@
 
 import { usePrivy, useSigners } from "@privy-io/react-auth";
 import { useCreateWallet } from "@privy-io/react-auth/extended-chains";
-import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import type { SetupInfo } from "../../lib/backend";
 import {
   getSendaApiUrl,
   getSessionSignerId,
   getSpendPolicyId,
   getWhatsAppReturnUrl,
 } from "../../lib/env";
-
-type SetupInfo = {
-  valid: boolean;
-  phoneHint?: string;
-  phoneE164?: string;
-};
 
 type Screen = "loading" | "invalid" | "login" | "working" | "done" | "error";
 
@@ -40,51 +34,26 @@ function stellarWalletOf(user: {
   return { address: wallet.address, id: wallet.id };
 }
 
-function SetupInner() {
-  const search = useSearchParams();
-  const token = search.get("token")?.trim() || "";
+function SetupInner({
+  token,
+  initial,
+}: {
+  token: string;
+  initial: SetupInfo;
+}) {
   const { ready, authenticated, user, login } = usePrivy();
   const { createWallet } = useCreateWallet();
   const { addSigners } = useSigners();
 
-  const [info, setInfo] = useState<SetupInfo | null>(null);
-  const [screen, setScreen] = useState<Screen>("loading");
-  const [error, setError] = useState("");
+  const [info] = useState<SetupInfo | null>(initial.valid ? initial : null);
+  const [screen, setScreen] = useState<Screen>(() =>
+    !token || !initial.valid ? "invalid" : "login"
+  );
+  const [error, setError] = useState(initial.error || "");
   const [busy, setBusy] = useState(false);
 
   const api = useMemo(() => getSendaApiUrl(), []);
   const wa = useMemo(() => getWhatsAppReturnUrl(), []);
-
-  useEffect(() => {
-    if (!token) {
-      setScreen("invalid");
-      return;
-    }
-
-    let cancelled = false;
-    fetch(`${api}/api/setup/${token}`)
-      .then(async (res) => {
-        const body = (await res.json()) as SetupInfo;
-        if (cancelled) {
-          return;
-        }
-        if (!res.ok || !body.valid) {
-          setScreen("invalid");
-          return;
-        }
-        setInfo(body);
-        setScreen("login");
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setScreen("invalid");
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [api, token]);
 
   async function finishOnboarding() {
     if (!user || busy) {
@@ -149,25 +118,28 @@ function SetupInner() {
     }
   }
 
-  if (screen === "loading" || !ready) {
-    return (
-      <div className="card">
-        <h1>Senda</h1>
-        <p>Estamos abriendo tu alta…</p>
-      </div>
-    );
-  }
-
   if (screen === "invalid") {
     return (
       <div className="card">
         <h1>Este enlace ya no sirve</h1>
-        <p>Pedile a Senda uno nuevo por WhatsApp. Es de un solo uso.</p>
+        <p>
+          {error ||
+            "Pedile a Senda uno nuevo por WhatsApp. Es de un solo uso."}
+        </p>
         <p>
           <a className="button" href={wa}>
             Volver a WhatsApp
           </a>
         </p>
+      </div>
+    );
+  }
+
+  if (screen === "loading" || !ready) {
+    return (
+      <div className="card">
+        <h1>Senda</h1>
+        <p>Estamos abriendo tu alta…</p>
       </div>
     );
   }
@@ -223,17 +195,12 @@ function SetupInner() {
   );
 }
 
-export function SetupClient() {
-  return (
-    <Suspense
-      fallback={
-        <div className="card">
-          <h1>Senda</h1>
-          <p>Estamos abriendo tu alta…</p>
-        </div>
-      }
-    >
-      <SetupInner />
-    </Suspense>
-  );
+export function SetupClient({
+  token,
+  initial,
+}: {
+  token: string;
+  initial: SetupInfo;
+}) {
+  return <SetupInner token={token} initial={initial} />;
 }

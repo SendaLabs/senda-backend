@@ -48,7 +48,7 @@ export function extractPartner(text: string): OfframpPartnerId | null {
   if (/western|wu\b/.test(normalized)) {
     return "western_union";
   }
-  if (/comercio|sucursal|tienda|kiosco|red senda/.test(normalized)) {
+  if (/comercio|sucursal|tienda|kiosco|red senda|shop|store|merchant/.test(normalized)) {
     return "comercio";
   }
   return null;
@@ -72,7 +72,15 @@ export async function createPartnerWithdrawal(
   };
 }
 
-export function partnerPrompt(): string {
+export function partnerPrompt(locale: "es" | "en" = "es"): string {
+  if (locale === "en") {
+    return [
+      "Where do you want to pick up the cash?",
+      "• MoneyGram",
+      "• A shop on the Senda network",
+      "• Western Union",
+    ].join("\n");
+  }
   return [
     "¿Dónde querés retirar el efectivo?",
     "• MoneyGram",

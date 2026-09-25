@@ -1,3 +1,4 @@
+import { detectLocale } from "../i18n/locale";
 import type { OfframpPartnerId } from "./offramp.store";
 import { extractPartner } from "./offramp.partners";
 
@@ -22,15 +23,25 @@ const WORD_AMOUNTS: Record<string, number> = {
   un: 1,
   uno: 1,
   una: 1,
+  one: 1,
   dos: 2,
+  two: 2,
   tres: 3,
+  three: 3,
   cuatro: 4,
+  four: 4,
   cinco: 5,
+  five: 5,
   seis: 6,
+  six: 6,
   siete: 7,
+  seven: 7,
   ocho: 8,
+  eight: 8,
   nueve: 9,
+  nine: 9,
   diez: 10,
+  ten: 10,
   once: 11,
   doce: 12,
   trece: 13,
@@ -41,55 +52,61 @@ const WORD_AMOUNTS: Record<string, number> = {
   dieciocho: 18,
   diecinueve: 19,
   veinte: 20,
+  twenty: 20,
   treinta: 30,
+  thirty: 30,
   cuarenta: 40,
+  forty: 40,
   cincuenta: 50,
+  fifty: 50,
   sesenta: 60,
   setenta: 70,
   ochenta: 80,
   noventa: 90,
   cien: 100,
   ciento: 100,
+  hundred: 100,
 };
 
 const SEND_VERBS =
-  "enviar|enviame|enviale|envio|enviarle|mandar|mandame|mandale|mandarle|transferir|transferime|acreditar|pagar|depositar|pasar|pasame|pasale|recargar|remesar|remesa|girar|girame";
+  "enviar|enviame|enviale|envio|enviarle|mandar|mandame|mandale|mandarle|transferir|transferime|acreditar|pagar|depositar|pasar|pasame|pasale|recargar|remesar|remesa|girar|girame|send|sending|transfer|wire";
 
 const WITHDRAW_VERBS =
-  "retirar|retirame|retiro|sacar|sacame|extraer|cobrar|cobrame|cashout|offramp";
+  "retirar|retirame|retiro|sacar|sacame|extraer|cobrar|cobrame|cashout|offramp|withdraw|withdrawing";
 
 const CASH_RE =
   /\b(efectivo|cash|moneygram|money\s*gram|western\s*union|\bwu\b|comercio|sucursal|kiosco)\b/;
 
 const WITHDRAW_STATUS_RE =
-  /\b(mi\s+codigo|codigo\s+de\s+retiro|donde\s+retiro|donde\s+cobro|mi\s+retiro|orden\s+de\s+retiro)\b/;
+  /\b(mi\s+codigo|codigo\s+de\s+retiro|donde\s+retiro|donde\s+cobro|mi\s+retiro|orden\s+de\s+retiro|my\s+code|pickup\s+code|where\s+do\s+i\s+(pick\s+up|withdraw)|my\s+withdrawal)\b/;
 
 const MERCADO_PAGO_RE =
-  /\b(mercado\s*pago|mercadopago|cvu|alias|retirar a mi cuenta|a mi cuenta|retirar a mercado pago|pasar a mercado pago)\b/;
+  /\b(mercado\s*pago|mercadopago|cvu|alias|retirar a mi cuenta|a mi cuenta|retirar a mercado pago|pasar a mercado pago|move to mercado pago|withdraw to mercado pago)\b/;
 
 const YIELD_SUPPLY_RE =
-  /\b(poner a rendir|poner\s+\d+(?:[.,]\d+)?\s+a\s+rendir|invertir|hacer rendir|meter a rendir|a rendir)\b/;
+  /\b(poner a rendir|poner\s+\d+(?:[.,]\d+)?\s+a\s+rendir|invertir|hacer rendir|meter a rendir|a rendir|put to work|put\s+\d+(?:[.,]\d+)?\s+to\s+work|earn yield|start earning)\b/;
 
 const YIELD_POSITION_RE =
-  /\b(cuanto tengo rindiendo|cuanto estoy rindiendo|cuanto rinde|mi rendimiento|lo que rinde|lo que esta rindiendo)\b/;
+  /\b(cuanto tengo rindiendo|cuanto estoy rindiendo|cuanto rinde|mi rendimiento|lo que rinde|lo que esta rindiendo|how much is earning|my yield|what.?s earning)\b/;
 
 const YIELD_WITHDRAW_RE =
-  /\b(sacar de rendir|sacar\s+\d+(?:[.,]\d+)?\s+de\s+rendir|retirar (de )?rendimiento|sacar (el )?rendimiento|dejar de rendir)\b/;
+  /\b(sacar de rendir|sacar\s+\d+(?:[.,]\d+)?\s+de\s+rendir|retirar (de )?rendimiento|sacar (el )?rendimiento|dejar de rendir|take out of yield|take\s+\d+(?:[.,]\d+)?\s+out of yield|withdraw from yield)\b/;
 
 const COBRO_RE =
-  /\b(generame un link de cobro|generar un link de cobro|link de cobro|cobro con qr|generar qr|armame un cobro|quiero cobrar)\b/;
+  /\b(generame un link de cobro|generar un link de cobro|link de cobro|cobro con qr|generar qr|armame un cobro|quiero cobrar|payment link|charge link|create a (payment|charge)|i want to (charge|get paid))\b/;
 
-const CURRENCY = "usdc|usd|dolares|dolar|dlls|bucks";
+const CURRENCY = "usdc|usd|dolares|dolar|dlls|bucks|dollars|dollar";
 
 const BALANCE_RE = new RegExp(
   [
     String.raw`\b(saldo|balance|fondos)\b`,
-    String.raw`\b(cuanto|cuanta|cuantos|cuantas)\b`,
-    String.raw`\b(ver|consultar|mostrar|chequear|revisar|dame|decime|mostrame)\s+(el\s+|la\s+|mi\s+|mis\s+|los\s+|las\s+)?(saldo|plata|fondos|balance|dinero|usdc|dolares|dolar)\b`,
-    String.raw`\b(mi|mis)\s+(saldo|plata|fondos|usdc|dolares|dinero)\b`,
+    String.raw`\b(cuanto|cuanta|cuantos|cuantas|how\s+much)\b`,
+    String.raw`\b(ver|consultar|mostrar|chequear|revisar|dame|decime|mostrame|check|show)\s+(el\s+|la\s+|mi\s+|mis\s+|los\s+|las\s+|my\s+)?(saldo|plata|fondos|balance|dinero|usdc|dolares|dolar|money)\b`,
+    String.raw`\b(mi|mis|my)\s+(saldo|plata|fondos|usdc|dolares|dinero|balance|money)\b`,
     String.raw`\b(tengo|hay)\s+(saldo|plata|usdc|dolares|dinero|fondos)\b`,
-    String.raw`\b(ver|consultar|mostrar|chequear)\s+mis\s+usdc\b`,
+    String.raw`\b(ver|consultar|mostrar|chequear|check)\s+mis\s+usdc\b`,
     String.raw`\bme\s+queda\b`,
+    String.raw`\bwhat'?s\s+my\s+balance\b`,
   ].join("|")
 );
 
@@ -97,10 +114,10 @@ const SEND_RE = new RegExp(String.raw`\b(${SEND_VERBS})\b`);
 const WITHDRAW_RE = new RegExp(String.raw`\b(${WITHDRAW_VERBS})\b`);
 
 const WANT_RE =
-  /\b(quiero|queria|quiero\s+hacer|necesito|me\s+gustaria|podrias|podes|puedo|vamos\s+a)\b/;
+  /\b(quiero|queria|quiero\s+hacer|necesito|me\s+gustaria|podrias|podes|puedo|vamos\s+a|i\s+want|i\s+need|can\s+you|could\s+you|please)\b/;
 
 const MENU_RE =
-  /^(menu|hola|holis|buenas|buen\s+dia|buenos\s+dias|buenas\s+tardes|buenas\s+noches|hey|inicio|empezar|start|ayuda|help|que\s+tal|como\s+estas)$/;
+  /^(menu|hola|holis|buenas|buen\s+dia|buenos\s+dias|buenas\s+tardes|buenas\s+noches|hey|hello|hi|good\s+morning|good\s+afternoon|good\s+evening|how\s+are\s+you|what'?s\s+up|inicio|empezar|start|ayuda|help|que\s+tal|como\s+estas)(\s+senda)?$/;
 
 const OPTION_RE = /^(1|2|3|4|5|6|1️⃣|2️⃣|3️⃣|4️⃣|5️⃣|6️⃣)$/;
 
@@ -155,12 +172,12 @@ function extractWordAmount(normalized: string): number | null {
     }
 
     const nearHint = new RegExp(
-      String.raw`(?:\b(?:${actionVerbs}|${CURRENCY}|quiero|necesito)\b\s+)?\b${word}\b(?:\s+(?:${CURRENCY}))?`
+      String.raw`(?:\b(?:${actionVerbs}|${CURRENCY}|quiero|necesito|want|need)\b\s+)?\b${word}\b(?:\s+(?:${CURRENCY}))?`
     );
     if (
       nearHint.test(normalized) &&
       new RegExp(
-        String.raw`\b(?:${actionVerbs}|${CURRENCY}|quiero|necesito)\b`
+        String.raw`\b(?:${actionVerbs}|${CURRENCY}|quiero|necesito|want|need)\b`
       ).test(normalized) &&
       new RegExp(String.raw`\b${word}\b`).test(normalized)
     ) {
@@ -265,7 +282,7 @@ export function classifyIntent(text: string): UserIntent {
     }
   }
 
-  if (MENU_RE.test(normalized)) {
+  if (MENU_RE.test(normalized) || detectLocale(raw)) {
     return { type: "menu" };
   }
 

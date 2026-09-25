@@ -1,9 +1,12 @@
 import { readFile } from "fs/promises";
 import path from "path";
 import axios, { isAxiosError } from "axios";
+import { welcomeMenuText, welcomeVideoCaption } from "../i18n/locale";
 import { redactSecrets } from "./file-vault.service";
 import { hashWhatsAppSender } from "./webhook-security.service";
 import { getWhatsAppUserId } from "./whatsapp.recipients";
+
+export { welcomeMenuText, welcomeVideoCaption };
 
 const GRAPH_API_VERSION = process.env.WHATSAPP_API_VERSION ?? "v22.0";
 
@@ -30,34 +33,7 @@ export function getWelcomeVideoUrl(): string {
 
 export const WELCOME_VIDEO_URL = FALLBACK_WELCOME_VIDEO_URL;
 
-function firstName(name?: string): string {
-  return (name ?? "").trim().split(/\s+/)[0] ?? "";
-}
-
-export function welcomeVideoCaption(name?: string): string {
-  const first = firstName(name);
-  const hello = first ? `¡Hola, ${first}!` : "¡Hola!";
-  return `${hello} Qué bueno tenerte acá 💚 Soy Senda. Estoy para acompañarte a mandar, recibir y cuidar tus dólares, sin apuro y sin vueltas.`;
-}
-
 export const WELCOME_VIDEO_CAPTION = welcomeVideoCaption();
-
-export function welcomeMenuText(name?: string): string {
-  const first = firstName(name);
-  const opener = first
-    ? `${first}, ¿en qué te puedo ayudar?`
-    : "¿En qué te puedo ayudar?";
-  return [
-    opener,
-    "",
-    "Podés escribirme o mandarme una nota de voz, como si me hablaras. No hace falta ningún comando.",
-    "",
-    "Decime lo que necesites: ver tu saldo, mandar dólares, sacar efectivo, pasarlos a Mercado Pago, dejarlos rindiendo o armar un cobro.",
-    "",
-    "Yo te voy guiando, sin apuro.",
-  ].join("\n");
-}
-
 export const WELCOME_MENU_TEXT = welcomeMenuText();
 
 export interface WhatsAppMessageResponse {

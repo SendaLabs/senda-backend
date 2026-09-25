@@ -1,8 +1,6 @@
+/** Vacío = mismo origen (el Next proxea /api/* al backend). */
 export function getSendaApiUrl(): string {
-  return (process.env.NEXT_PUBLIC_SENDA_API_URL || "http://localhost:3000").replace(
-    /\/$/,
-    ""
-  );
+  return "";
 }
 
 export function getWhatsAppReturnUrl(): string {

@@ -47,6 +47,26 @@ test("el guion del sábado entra a cada flujo", () => {
   );
 });
 
+test("hello y los verbos en inglés entran a los mismos flujos", () => {
+  assert.equal(classifyIntent("hello").type, "menu");
+  assert.equal(classifyIntent("hi").type, "menu");
+  assert.deepEqual(classifyIntent("send 5"), { type: "send", amount: 5 });
+  assert.equal(classifyIntent("how much do I have").type, "balance");
+  assert.deepEqual(classifyIntent("withdraw 2 at MoneyGram"), {
+    type: "withdraw",
+    amount: 2,
+    partner: "moneygram",
+  });
+  assert.deepEqual(classifyIntent("create a payment link"), {
+    type: "cobro",
+    amount: null,
+  });
+  assert.deepEqual(classifyIntent("put 1 to work"), {
+    type: "yield_supply",
+    amount: 1,
+  });
+});
+
 test("un monto suelto no se acredita como envío", () => {
   assert.equal(classifyIntent("5").type, "option");
   assert.equal(classifyIntent("20").type, "unknown");

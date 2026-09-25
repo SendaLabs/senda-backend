@@ -19,6 +19,15 @@ test("el invite de alta manda el link corto y pide el mismo WhatsApp", () => {
   assert.match(text, /creada con éxito/);
 });
 
+test("el invite en inglés no saca el texto en español por defecto", () => {
+  const en = buildSetupInvite("Ana", "http://localhost:3000/s/abc", "en");
+  assert.match(en, /http:\/\/localhost:3000\/s\/abc/);
+  assert.match(en, /email/);
+  assert.match(en, /When you see/);
+  const es = buildSetupInvite("Ana", "http://localhost:3000/s/abc");
+  assert.match(es, /ya podés volver/);
+});
+
 test("el aviso post-alta confirma y agradece", () => {
   const text = buildSetupReadyMessage();
   assert.match(text, /creada con éxito/);

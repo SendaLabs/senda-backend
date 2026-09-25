@@ -1,4 +1,5 @@
 import path from "path";
+import type { Locale } from "../i18n/locale";
 import type { OfframpPartnerId } from "./offramp.store";
 import { getDataDir } from "./data-dir";
 import { hashWhatsAppSender } from "./webhook-security.service";
@@ -23,6 +24,7 @@ export type ConversationStep =
 export interface ConversationSession {
   step: ConversationStep;
   name: string;
+  locale?: Locale;
   pendingAmount?: number;
   pendingPartner?: OfframpPartnerId;
   pendingDestination?: string;
@@ -89,6 +91,8 @@ export function isMenuRequest(text: string): boolean {
     normalized === "menu" ||
     normalized === "menú" ||
     normalized === "0" ||
-    normalized === "hola"
+    normalized === "hola" ||
+    normalized === "hello" ||
+    normalized === "hi"
   );
 }

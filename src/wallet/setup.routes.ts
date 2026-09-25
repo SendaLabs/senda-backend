@@ -8,6 +8,7 @@ import {
   peekSetupToken,
   setupFullUrl,
 } from "./setup-token.store";
+import { getSession } from "../services/session.service";
 import { buildSetupReadyMessage } from "./wallet-setup";
 
 const STELLAR_PUBLIC_KEY = /^G[A-Z2-7]{55}$/;
@@ -21,7 +22,16 @@ function setupCorsOrigin(): string {
 }
 
 function allowSetupCors(req: Request, res: Response, next: NextFunction): void {
-  res.setHeader("Access-Control-Allow-Origin", setupCorsOrigin());
+  const origin = (req.header("Origin") || "").replace(/\/$/, "");
+  const configured = setupCorsOrigin();
+  const allowed =
+    origin &&
+    (origin === configured ||
+      origin.endsWith(".onrender.com") ||
+      origin.startsWith("http://localhost"))
+      ? origin
+      : configured;
+  res.setHeader("Access-Control-Allow-Origin", allowed);
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") {
@@ -96,7 +106,10 @@ export function mountSetupRoutes(app: Express): void {
         phoneHint: maskPhone(row.phone),
         walletAddress,
       });
-      void sendWhatsAppMessage(row.phone, buildSetupReadyMessage()).catch(
+      void sendWhatsAppMessage(
+        row.phone,
+        buildSetupReadyMessage(getSession(row.phone)?.locale ?? "es")
+      ).catch(
         (error) => logSafeError("Alta: no pude avisar por WhatsApp", error)
       );
     } catch (error) {
