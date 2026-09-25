@@ -20,7 +20,10 @@ import {
 } from "../stellar/treasury";
 import { treasurySimulateThenSubmit } from "../stellar/simulate-submit";
 import { logSafeError } from "../services/whatsapp.service";
-import { areYieldDepositsBlocked } from "./utilization-guard";
+import {
+  areYieldDepositsBlocked,
+  refreshUtilizationGuard,
+} from "./utilization-guard";
 import { getUserYieldView, syncYieldAccounting } from "./yield-accounting-service";
 
 const RequestType = {
@@ -52,6 +55,7 @@ export async function deposit(
   if (!canUseSavings(userId)) {
     throw new Error("Todavía no podemos poner tu plata a rendir.");
   }
+  await refreshUtilizationGuard();
   if (areYieldDepositsBlocked()) {
     throw new YieldDepositsBlockedError();
   }

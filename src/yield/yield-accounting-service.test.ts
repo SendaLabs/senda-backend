@@ -35,10 +35,16 @@ test("si no hay shares, nadie se lleva el yield", () => {
   assert.equal(allocated.length, 0);
 });
 
-test("el umbral de utilización por defecto es 85%", () => {
+test("el umbral de utilización por defecto es 95% en testnet y 85% en public", () => {
+  const previousNetwork = process.env.STELLAR_NETWORK;
   delete process.env.BLEND_MAX_UTILIZATION;
+  process.env.STELLAR_NETWORK = "testnet";
+  assert.equal(getMaxBlendUtilization(), 0.95);
+  process.env.STELLAR_NETWORK = "public";
   assert.equal(getMaxBlendUtilization(), 0.85);
   process.env.BLEND_MAX_UTILIZATION = "0.7";
   assert.equal(getMaxBlendUtilization(), 0.7);
   delete process.env.BLEND_MAX_UTILIZATION;
+  if (previousNetwork === undefined) delete process.env.STELLAR_NETWORK;
+  else process.env.STELLAR_NETWORK = previousNetwork;
 });
