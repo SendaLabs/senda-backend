@@ -1,3 +1,4 @@
+import path from "path";
 import type { Express, NextFunction, Request, Response } from "express";
 import { upsertPrivyUser } from "../db/users.repository";
 import {
@@ -34,6 +35,10 @@ function readString(value: unknown): string {
 
 export function mountSetupRoutes(app: Express): void {
   app.use(["/api/setup", "/api/link-wallet"], allowSetupCors);
+
+  app.get(["/setup", "/setup/"], (_req: Request, res: Response) => {
+    res.sendFile(path.join(process.cwd(), "src", "public", "setup.html"));
+  });
 
   app.get("/s/:token", (req: Request, res: Response) => {
     const token = readString(req.params.token);

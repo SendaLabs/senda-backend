@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Abrir cuenta Senda</title>
+    <style>
+      body {
+        font-family: Georgia, serif;
+        background: #f6f1e8;
+        color: #14221c;
+        display: flex;
+        justify-content: center;
+        padding: 2.5rem 1.25rem;
+      }
+      main {
+        width: min(28rem, 100%);
+        background: #fffdf8;
+        border: 1px solid #e4d8c4;
+        border-radius: 18px;
+        padding: 1.5rem;
+      }
+      a {
+        color: #1f6b4a;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Senda</h1>
+      <p id="msg">Estamos abriendo tu alta…</p>
+      <p>
+        <a id="wa" href="https://wa.me/">Volver a WhatsApp</a>
+      </p>
+    </main>
+    <script>
+      const params = new URLSearchParams(location.search);
+      const token = params.get("token") || "";
+      const msg = document.getElementById("msg");
+      if (!token) {
+        msg.textContent =
+          "Esta página se abre desde el enlace que te mandamos por WhatsApp.";
+      } else {
+        fetch("/api/setup/" + encodeURIComponent(token))
+          .then((res) => res.json())
+          .then((body) => {
+            if (!body.valid) {
+              msg.textContent =
+                "Este enlace ya no sirve. Pedile a Senda uno nuevo por WhatsApp.";
+              return;
+            }
+            msg.textContent =
+              "El alta completa vive en el mini sitio web-setup (login SMS + wallet Stellar). Si llegaste acá, falta deployar ese sitio o WEB_SETUP_PUBLIC_URL. El token es válido" +
+              (body.phoneHint ? " para " + body.phoneHint : "") +
+              ".";
+          })
+          .catch(() => {
+            msg.textContent =
+              "No pude validar el enlace. Probá de nuevo o escribile a Senda.";
+          });
+      }
+    </script>
+  </body>
+</html>

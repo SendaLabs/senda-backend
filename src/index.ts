@@ -15,7 +15,7 @@ import {
 import { assertRuntimeSecrets } from "./services/custody-secrets.service";
 import { reconcileOfframpOrders } from "./services/offramp.service";
 import { resumePendingSep24Withdrawals } from "./services/sep24-withdraw.service";
-import { hasPrivyCredentials } from "./config/flags";
+import { hasPrivyCredentials, isPrivySelfCustodyReady } from "./config/flags";
 import { mountSetupRoutes } from "./wallet/setup.routes";
 import { startHorizonListener } from "./stellar/horizon-listener";
 import { ensureTreasuryUsdcTrustline } from "./stellar/treasury";
@@ -79,6 +79,7 @@ app.get("/ready", (_req: Request, res: Response) => {
     fileVault: Boolean(process.env.FILE_VAULT_SECRET?.trim()),
     offrampVault: Boolean(process.env.STELLAR_OFFRAMP_PUBLIC_KEY?.trim()),
     privy: hasPrivyCredentials(),
+    privyReady: isPrivySelfCustodyReady(),
     sessionSigner: Boolean(process.env.PRIVY_SESSION_SIGNER_PRIVATE_KEY?.trim()),
     webSetup: Boolean(process.env.WEB_SETUP_PUBLIC_URL?.trim()),
     treasury:
