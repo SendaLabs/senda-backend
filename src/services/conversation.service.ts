@@ -54,7 +54,7 @@ import {
   sendWhatsAppImage,
   sendWhatsAppVideo,
   WELCOME_MENU_TEXT,
-  WELCOME_VIDEO_CAPTION,
+  welcomeVideoCaption,
   getWelcomeVideoUrl,
 } from "./whatsapp.service";
 
@@ -116,13 +116,20 @@ async function sendMenu(to: string, name: string): Promise<void> {
   setSession(to, idleSession(name));
 }
 
-async function sendWelcomeVideoOrCaption(to: string): Promise<void> {
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function sendWelcomeVideoOrCaption(
+  to: string,
+  caption: string
+): Promise<void> {
   try {
-    await sendWhatsAppVideo(to, getWelcomeVideoUrl(), WELCOME_VIDEO_CAPTION);
+    await sendWhatsAppVideo(to, getWelcomeVideoUrl(), caption);
   } catch (error) {
     logSafeError("Webhook: no se pudo enviar el video de bienvenida", error);
     try {
-      await sendWhatsAppMessage(to, WELCOME_VIDEO_CAPTION);
+      await sendWhatsAppMessage(to, caption);
     } catch (captionError) {
       logSafeError("Webhook: tampoco pude mandar el texto del video", captionError);
     }
@@ -130,8 +137,11 @@ async function sendWelcomeVideoOrCaption(to: string): Promise<void> {
 }
 
 export async function sendWelcomeFlow(to: string, name: string): Promise<void> {
+  const caption = welcomeVideoCaption(name);
+  await sendWelcomeVideoOrCaption(to, caption);
+  // WhatsApp entrega el texto antes que el video si van pegados.
+  await sleep(2800);
   await sendMenu(to, name);
-  await sendWelcomeVideoOrCaption(to);
 }
 
 async function startSendFlow(to: string, name: string): Promise<void> {
@@ -757,7 +767,7 @@ async function handleIncomingWhatsAppMessageInner(
   const setupInvite = await maybeInviteWalletSetup(from, name);
   if (setupInvite) {
     await sendWhatsAppMessage(from, setupInvite);
-    await sendWelcomeVideoOrCaption(from);
+    await sendWelcomeVideoOrCaption(from, welcomeVideoCaption(name));
     return;
   }
 

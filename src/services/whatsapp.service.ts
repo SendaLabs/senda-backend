@@ -30,8 +30,13 @@ export function getWelcomeVideoUrl(): string {
 
 export const WELCOME_VIDEO_URL = FALLBACK_WELCOME_VIDEO_URL;
 
-export const WELCOME_VIDEO_CAPTION =
-  "Hola, soy Senda. Te ayudo a mandar dólares, ver tu saldo, retirar en efectivo o pasarlos a Mercado Pago. También podés dejarlos rindiendo o armar un link de cobro.";
+export function welcomeVideoCaption(name?: string): string {
+  const first = (name ?? "").trim().split(/\s+/)[0];
+  const hello = first ? `¡Hola, ${first}!` : "¡Hola!";
+  return `${hello} Qué bueno tenerte acá 💛 Soy Senda. Estoy para acompañarte a mandar, recibir y cuidar tus dólares, sin apuro y sin vueltas.`;
+}
+
+export const WELCOME_VIDEO_CAPTION = welcomeVideoCaption();
 
 export const WELCOME_MENU_TEXT = [
   "¿En qué te ayudo? Escribí el número o la frase:",
