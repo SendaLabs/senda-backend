@@ -27,6 +27,10 @@ model Transaction {
   status             String
   txHash             String?
   sep24TransactionId String?
+  providerId         String?
+  horizonConfirmed   Boolean  @default(false)
+  anchorConfirmed    Boolean  @default(false)
+  lastNotifiedStatus String?
   createdAt          DateTime @default(now())
 }
 

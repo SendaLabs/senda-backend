@@ -17,6 +17,10 @@ export interface StoredTransaction {
   txHash?: string;
   sep24TransactionId?: string;
   sep24JwtEnc?: string;
+  providerId?: string;
+  horizonConfirmed?: boolean;
+  anchorConfirmed?: boolean;
+  lastNotifiedStatus?: string;
   createdAt: string;
 }
 
@@ -88,6 +92,10 @@ export async function createTransaction(input: {
   txHash?: string;
   sep24TransactionId?: string;
   sep24JwtEnc?: string;
+  providerId?: string;
+  horizonConfirmed?: boolean;
+  anchorConfirmed?: boolean;
+  lastNotifiedStatus?: string;
 }): Promise<StoredTransaction> {
   const row: StoredTransaction = {
     id: `tx_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -106,6 +114,24 @@ export async function updateTransactionStatus(
   status: string,
   txHash?: string
 ): Promise<void> {
+  await patchSep24Transaction(sep24TransactionId, { status, txHash });
+}
+
+export async function patchSep24Transaction(
+  sep24TransactionId: string,
+  patch: Partial<
+    Pick<
+      StoredTransaction,
+      | "status"
+      | "txHash"
+      | "horizonConfirmed"
+      | "anchorConfirmed"
+      | "lastNotifiedStatus"
+      | "providerId"
+    >
+  >
+): Promise<StoredTransaction | null> {
+  let updated: StoredTransaction | null = null;
   await mutateJsonFile<DbFile>(dbPath(), emptyDb(), (db) => {
     const row = db.transactions.find(
       (item) => item.sep24TransactionId === sep24TransactionId
@@ -113,12 +139,32 @@ export async function updateTransactionStatus(
     if (!row) {
       return db;
     }
-    row.status = status;
-    if (txHash) {
-      row.txHash = txHash;
+    if (patch.status !== undefined) row.status = patch.status;
+    if (patch.txHash) row.txHash = patch.txHash;
+    if (patch.horizonConfirmed !== undefined) {
+      row.horizonConfirmed = patch.horizonConfirmed;
     }
+    if (patch.anchorConfirmed !== undefined) {
+      row.anchorConfirmed = patch.anchorConfirmed;
+    }
+    if (patch.lastNotifiedStatus !== undefined) {
+      row.lastNotifiedStatus = patch.lastNotifiedStatus;
+    }
+    if (patch.providerId) row.providerId = patch.providerId;
+    updated = { ...row };
     return db;
   });
+  return updated;
+}
+
+export async function findSep24Transaction(
+  sep24TransactionId: string
+): Promise<StoredTransaction | null> {
+  return (
+    readDb().transactions.find(
+      (item) => item.sep24TransactionId === sep24TransactionId
+    ) ?? null
+  );
 }
 
 export async function upsertYieldPosition(
