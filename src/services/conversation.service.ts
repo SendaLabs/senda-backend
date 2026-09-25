@@ -53,7 +53,7 @@ import {
   sendWhatsAppMessage,
   sendWhatsAppImage,
   sendWhatsAppVideo,
-  WELCOME_MENU_TEXT,
+  welcomeMenuText,
   welcomeVideoCaption,
   getWelcomeVideoUrl,
 } from "./whatsapp.service";
@@ -94,10 +94,7 @@ function formatUsdcLabel(amount: number): string {
 }
 
 function guideUser(name: string): string {
-  return [
-    `${name}, ¿en qué te ayudo?`,
-    "Podés pedirme el saldo, armar un envío («quiero mandar 20 dólares»), retirar efectivo («retirar 15 en MoneyGram»), pasar plata a Mercado Pago, ponerla a rendir o pedirme un link de cobro.",
-  ].join("\n");
+  return welcomeMenuText(name);
 }
 
 function idleSession(
@@ -112,7 +109,7 @@ function idleSession(
 }
 
 async function sendMenu(to: string, name: string): Promise<void> {
-  await sendWhatsAppMessage(to, WELCOME_MENU_TEXT);
+  await sendWhatsAppMessage(to, welcomeMenuText(name));
   setSession(to, idleSession(name));
 }
 
@@ -766,8 +763,9 @@ async function handleIncomingWhatsAppMessageInner(
 ): Promise<void> {
   const setupInvite = await maybeInviteWalletSetup(from, name);
   if (setupInvite) {
-    await sendWhatsAppMessage(from, setupInvite);
     await sendWelcomeVideoOrCaption(from, welcomeVideoCaption(name));
+    await sleep(2800);
+    await sendWhatsAppMessage(from, setupInvite);
     return;
   }
 

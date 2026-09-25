@@ -30,26 +30,35 @@ export function getWelcomeVideoUrl(): string {
 
 export const WELCOME_VIDEO_URL = FALLBACK_WELCOME_VIDEO_URL;
 
+function firstName(name?: string): string {
+  return (name ?? "").trim().split(/\s+/)[0] ?? "";
+}
+
 export function welcomeVideoCaption(name?: string): string {
-  const first = (name ?? "").trim().split(/\s+/)[0];
+  const first = firstName(name);
   const hello = first ? `¡Hola, ${first}!` : "¡Hola!";
-  return `${hello} Qué bueno tenerte acá 💛 Soy Senda. Estoy para acompañarte a mandar, recibir y cuidar tus dólares, sin apuro y sin vueltas.`;
+  return `${hello} Qué bueno tenerte acá 💚 Soy Senda. Estoy para acompañarte a mandar, recibir y cuidar tus dólares, sin apuro y sin vueltas.`;
 }
 
 export const WELCOME_VIDEO_CAPTION = welcomeVideoCaption();
 
-export const WELCOME_MENU_TEXT = [
-  "¿En qué te ayudo? Escribí el número o la frase:",
-  "",
-  "1. Enviar dólares",
-  "2. Ver saldo",
-  "3. Retirar en efectivo",
-  "4. Pasar a Mercado Pago",
-  "5. Poner a rendir",
-  "6. Cuánto tengo rindiendo",
-  "",
-  "También: «generame un link de cobro». Sirve una nota de voz. Ejemplos: «mandar 5», «retirar 2 en MoneyGram», «poner 1 a rendir».",
-].join("\n");
+export function welcomeMenuText(name?: string): string {
+  const first = firstName(name);
+  const opener = first
+    ? `${first}, ¿en qué te puedo ayudar?`
+    : "¿En qué te puedo ayudar?";
+  return [
+    opener,
+    "",
+    "Podés escribirme o mandarme una nota de voz, como si me hablaras. No hace falta ningún comando.",
+    "",
+    "Decime lo que necesites: ver tu saldo, mandar dólares, sacar efectivo, pasarlos a Mercado Pago, dejarlos rindiendo o armar un cobro.",
+    "",
+    "Yo te voy guiando, sin apuro.",
+  ].join("\n");
+}
+
+export const WELCOME_MENU_TEXT = welcomeMenuText();
 
 export interface WhatsAppMessageResponse {
   messaging_product: "whatsapp";

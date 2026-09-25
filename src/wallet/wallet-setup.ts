@@ -4,12 +4,25 @@ import { isLinkedPrivyUser } from "./privy-account";
 import { issueSetupToken, setupShortUrl } from "./setup-token.store";
 
 export function buildSetupInvite(name: string, url: string): string {
+  const first = name.trim().split(/\s+/)[0] || "hola";
   return [
-    `${name}, antes de mover plata tenés que abrir tu cuenta. Es una sola vez.`,
-    "Tocá este enlace (es de Senda, dura 30 minutos):",
+    `${first}, para empezar vamos a abrir tu cuenta. Es una sola vez y te lleva un minutito.`,
+    "",
+    "Tocá este enlace (es de Senda y dura 30 minutos):",
     url,
-    "Entrá con el mismo número de WhatsApp.",
-    "Cuando veas «Listo», volvé y escribime de nuevo.",
+    "",
+    "Entrá con el mismo número de WhatsApp. Te llega un SMS, creás tu cuenta y listo.",
+    "Cuando veas «Listo», ya podés volver: tu cuenta va a estar creada con éxito.",
+  ].join("\n");
+}
+
+export function buildSetupReadyMessage(): string {
+  return [
+    "¡Listo! Tu cuenta ya está creada con éxito 💚",
+    "",
+    "Gracias por confiar en Senda. Ya podés pedirme lo que necesites, con tus palabras o una nota de voz.",
+    "",
+    "¿En qué te puedo ayudar?",
   ].join("\n");
 }
 

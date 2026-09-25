@@ -1,12 +1,14 @@
 import path from "path";
 import type { Express, NextFunction, Request, Response } from "express";
 import { upsertPrivyUser } from "../db/users.repository";
+import { logSafeError, sendWhatsAppMessage } from "../services/whatsapp.service";
 import {
   consumeSetupToken,
   maskPhone,
   peekSetupToken,
   setupFullUrl,
 } from "./setup-token.store";
+import { buildSetupReadyMessage } from "./wallet-setup";
 
 const STELLAR_PUBLIC_KEY = /^G[A-Z2-7]{55}$/;
 
@@ -94,6 +96,9 @@ export function mountSetupRoutes(app: Express): void {
         phoneHint: maskPhone(row.phone),
         walletAddress,
       });
+      void sendWhatsAppMessage(row.phone, buildSetupReadyMessage()).catch(
+        (error) => logSafeError("Alta: no pude avisar por WhatsApp", error)
+      );
     } catch (error) {
       res.status(409).json({
         ok: false,

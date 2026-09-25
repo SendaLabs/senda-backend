@@ -204,11 +204,12 @@ function SetupInner() {
   if (screen === "done") {
     return (
       <div className="card">
-        <h1>Listo, volvé a WhatsApp</h1>
+        <h1>Listo 💚 tu cuenta está creada</h1>
         <p>
-          Tu cuenta ya está abierta. Senda puede mover hasta{" "}
-          {SENDA_MAX_USDC_PER_TRANSACTION} dólares por envío y{" "}
-          {SENDA_MAX_USDC_PER_DAY} por día.
+          Ya podés volver a WhatsApp. En un momento te llega un mensajito de
+          Senda. Después pedime lo que necesites, con tus palabras o una nota de
+          voz. Podemos mover hasta {SENDA_MAX_USDC_PER_TRANSACTION} dólares por
+          envío y {SENDA_MAX_USDC_PER_DAY} por día.
         </p>
         <p>
           <a className="button" href={wa}>
@@ -221,15 +222,16 @@ function SetupInner() {
 
   return (
     <div className="card">
-      <h1>Abrí tu cuenta</h1>
+      <h1>Qué bueno que estés acá</h1>
       <p>
-        Una sola vez. Entrá con el mismo número de WhatsApp
+        Vamos a abrir tu cuenta. Es una sola vez. Entrá con el mismo número de
+        WhatsApp
         {info?.phoneHint ? ` (${info.phoneHint})` : ""}.
       </p>
       <p className="hint">
-        Después le das permiso a Senda para mover tu plata, con tope de{" "}
-        {SENDA_MAX_USDC_PER_TRANSACTION} por envío y {SENDA_MAX_USDC_PER_DAY} por
-        día.
+        Después le das permiso a Senda para ayudarte a mover tu plata, con tope
+        de {SENDA_MAX_USDC_PER_TRANSACTION} dólares por envío y{" "}
+        {SENDA_MAX_USDC_PER_DAY} por día.
       </p>
       {error ? <p className="error">{error}</p> : null}
       {!authenticated ? (
@@ -245,7 +247,7 @@ function SetupInner() {
           }
           disabled={busy}
         >
-          Entrar con SMS
+          Continuar con mi WhatsApp
         </button>
       ) : (
         <button type="button" onClick={() => void finishOnboarding()} disabled={busy}>
