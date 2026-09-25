@@ -92,7 +92,7 @@ function formatUsdcLabel(amount: number): string {
 function guideUser(name: string): string {
   return [
     `${name}, ¿en qué te ayudo?`,
-    "Podés pedirme el saldo, armar un envío («quiero mandar 20 dólares»), retirar efectivo («retirar 15 en MoneyGram»), pasar plata a Mercado Pago o ponerla a rendir.",
+    "Podés pedirme el saldo, armar un envío («quiero mandar 20 dólares»), retirar efectivo («retirar 15 en MoneyGram»), pasar plata a Mercado Pago, ponerla a rendir o pedirme un link de cobro.",
   ].join("\n");
 }
 
@@ -332,7 +332,7 @@ async function handleBalanceQuery(to: string, name: string): Promise<void> {
       [
         `Tenés ${balance} USDC listos para usar.`,
         "",
-        "Si querés enviar, escribí «mandar 10». Si querés efectivo, «retirar 15 en MoneyGram». También podés pasar a Mercado Pago o poner a rendir.",
+        "Si querés enviar, escribí «mandar 10». Si querés efectivo, «retirar 15 en MoneyGram». También: Mercado Pago, poner a rendir o «generame un link de cobro».",
       ].join("\n")
     );
   } catch (error) {
@@ -603,7 +603,10 @@ async function handleYieldPosition(to: string, name: string): Promise<void> {
     const position = await getBlendPosition(to);
     await sendWhatsAppMessage(
       to,
-      `Lo que tenés rindiendo ahora vale unos ${position.currentValueUsdc} dólares.`
+      [
+        `Lo que dejaste rindiendo ahora vale unos ${position.currentValueUsdc} dólares.`,
+        "Es tu parte de un pozo compartido de Senda. Si querés volver a tu saldo, escribí «sacar 10 de rendir».",
+      ].join("\n")
     );
   } catch (error) {
     logSafeError("Error al consultar rendimiento", error);

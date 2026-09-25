@@ -31,19 +31,19 @@ export function getWelcomeVideoUrl(): string {
 export const WELCOME_VIDEO_URL = FALLBACK_WELCOME_VIDEO_URL;
 
 export const WELCOME_VIDEO_CAPTION =
-  "¡Hola! 👋 Bienvenido a Senda. Te ayudo a enviar y recibir USDC al toque, sin vueltas.";
+  "Hola, soy Senda. Te ayudo a mandar dólares, ver tu saldo, retirar en efectivo o pasarlos a Mercado Pago. También podés dejarlos rindiendo o armar un link de cobro.";
 
 export const WELCOME_MENU_TEXT = [
   "¿En qué te ayudo? Escribí el número o la frase:",
   "",
-  "1. Enviar USDC",
+  "1. Enviar dólares",
   "2. Ver saldo",
   "3. Retirar en efectivo",
   "4. Pasar a Mercado Pago",
   "5. Poner a rendir",
   "6. Cuánto tengo rindiendo",
   "",
-  "También sirve una nota de voz. Ejemplos: «mandar 5», «retirar 2 en MoneyGram», «poner 1 a rendir».",
+  "También: «generame un link de cobro». Sirve una nota de voz. Ejemplos: «mandar 5», «retirar 2 en MoneyGram», «poner 1 a rendir».",
 ].join("\n");
 
 export interface WhatsAppMessageResponse {

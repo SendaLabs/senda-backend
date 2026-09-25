@@ -15,6 +15,7 @@ import {
 import { assertRuntimeSecrets } from "./services/custody-secrets.service";
 import { reconcileOfframpOrders } from "./services/offramp.service";
 import { resumePendingSep24Withdrawals } from "./services/sep24-withdraw.service";
+import { hasPrivyCredentials } from "./config/flags";
 import { startHorizonListener } from "./stellar/horizon-listener";
 import { ensureTreasuryUsdcTrustline } from "./stellar/treasury";
 import { refreshUtilizationGuard } from "./yield/utilization-guard";
@@ -74,6 +75,11 @@ app.get("/ready", (_req: Request, res: Response) => {
     custodyMaster: Boolean(process.env.CUSTODY_MASTER_SECRET?.trim()),
     fileVault: Boolean(process.env.FILE_VAULT_SECRET?.trim()),
     offrampVault: Boolean(process.env.STELLAR_OFFRAMP_PUBLIC_KEY?.trim()),
+    privy: hasPrivyCredentials(),
+    treasury:
+      Boolean(process.env.STELLAR_TREASURY_SECRET_KEY?.trim()) ||
+      Boolean(process.env.STELLAR_SECRET_KEY?.trim()),
+    sep24: Boolean(process.env.SEP24_HOME_DOMAIN?.trim() || "testanchor.stellar.org"),
     network: process.env.STELLAR_NETWORK ?? "testnet",
     welcomeVideo:
       process.env.WELCOME_SKIP_VIDEO?.trim() === "true" ? "skipped" : "enabled",

@@ -39,8 +39,20 @@ export function humanizeLedgerError(error: unknown): string {
     return "Ese envío ya se está procesando. Dame un toque y pedime el saldo.";
   }
 
+  if (
+    /no te alcanza el saldo para (poner esa plata a rendir|ese retiro a mercado pago)/.test(
+      raw
+    )
+  ) {
+    return "No te alcanza el saldo para eso. Pedime el saldo o mandá un monto más chico.";
+  }
+
   if (/no pude (poner|armar).*rendir|no mandamos nada a la red/.test(raw)) {
-    return "No pude poner esa plata a rendir. Probá de nuevo en un rato.";
+    return "No pude poner esa plata a rendir. Probá de nuevo en un rato o seguí con el saldo y el retiro.";
+  }
+
+  if (/sep-?10|sep-?24|testanchor|home domain/.test(raw)) {
+    return "No pude abrir el retiro a Mercado Pago ahora. El envío y el saldo siguen andando. Probá de nuevo en un rato.";
   }
 
   if (
