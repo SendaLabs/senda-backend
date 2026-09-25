@@ -1,9 +1,4 @@
-import { Buffer } from "buffer";
-
-export interface PrivyStellarWallet {
-  walletId: string;
-  address: string;
-}
+import { PrivyClient } from "@privy-io/node";
 
 function getPrivyCredentials(): { appId: string; appSecret: string } {
   const appId = process.env.PRIVY_APP_ID?.trim();
@@ -14,14 +9,23 @@ function getPrivyCredentials(): { appId: string; appSecret: string } {
   return { appId, appSecret };
 }
 
-function privyHeaders(): Record<string, string> {
+export function getPrivyClient(): PrivyClient {
   const { appId, appSecret } = getPrivyCredentials();
-  const basic = Buffer.from(`${appId}:${appSecret}`).toString("base64");
-  return {
-    Authorization: `Basic ${basic}`,
-    "privy-app-id": appId,
-    "Content-Type": "application/json",
-  };
+  return new PrivyClient({ appId, appSecret });
+}
+
+export function toPrivyHashHex(hash: Buffer): `0x${string}` {
+  return `0x${hash.toString("hex")}`;
+}
+
+function getSessionSignerKey(): string {
+  const key = process.env.PRIVY_SESSION_SIGNER_PRIVATE_KEY?.trim();
+  if (!key) {
+    throw new Error(
+      "Falta PRIVY_SESSION_SIGNER_PRIVATE_KEY. El usuario tiene que haber delegado el signer en /setup."
+    );
+  }
+  return key;
 }
 
 function decodeSignature(raw: string): Buffer {
@@ -32,53 +36,18 @@ function decodeSignature(raw: string): Buffer {
   return Buffer.from(raw, "base64");
 }
 
-export async function createStellarWallet(
-  userId: string
-): Promise<PrivyStellarWallet> {
-  const response = await fetch("https://api.privy.io/v1/wallets", {
-    method: "POST",
-    headers: privyHeaders(),
-    body: JSON.stringify({
-      chain_type: "stellar",
-      owner_id: userId,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Privy no pudo crear la wallet (${response.status})`);
-  }
-
-  const created = (await response.json()) as { id?: string; address?: string };
-  if (!created.id || !created.address) {
-    throw new Error("Privy no devolvió id o address");
-  }
-  return { walletId: created.id, address: created.address };
-}
-
 export async function signStellarHash(
   walletId: string,
   hash: Buffer
 ): Promise<Buffer> {
-  const response = await fetch(
-    `https://api.privy.io/v1/wallets/${walletId}/raw_sign`,
-    {
-      method: "POST",
-      headers: privyHeaders(),
-      body: JSON.stringify({
-        params: { hash: `0x${hash.toString("hex")}` },
-      }),
-    }
-  );
+  const signed = await getPrivyClient().wallets().rawSign(walletId, {
+    params: { hash: toPrivyHashHex(hash) },
+    authorization_context: {
+      authorization_private_keys: [getSessionSignerKey()],
+    },
+  });
 
-  if (!response.ok) {
-    throw new Error(`Privy no pudo firmar el hash (${response.status})`);
-  }
-
-  const body = (await response.json()) as {
-    signature?: string;
-    data?: { signature?: string };
-  };
-  const signature = body.signature ?? body.data?.signature;
+  const signature = signed.signature;
   if (!signature) {
     throw new Error("Privy no devolvió firma");
   }

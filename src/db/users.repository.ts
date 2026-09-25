@@ -4,6 +4,7 @@ import { mutateJsonFile, readJsonFile } from "../services/json-store";
 
 export interface StoredUser {
   phone: string;
+  privyUserId?: string | null;
   privyWalletId: string | null;
   stellarPublicKey: string;
 }
@@ -17,12 +18,18 @@ export interface StoredTransaction {
   txHash?: string;
   sep24TransactionId?: string;
   sep24JwtEnc?: string;
+  providerId?: string;
+  horizonConfirmed?: boolean;
+  anchorConfirmed?: boolean;
+  lastNotifiedStatus?: string;
   createdAt: string;
 }
 
 export interface StoredYieldPosition {
   phone: string;
+  sharesStroops: string;
   bUsdcBalance: string;
+  accruedYieldUsdc: string;
   lastSyncedValueUsdc: string;
   updatedAt: string;
 }
@@ -54,9 +61,15 @@ export async function findUserByPhone(
 export async function upsertPrivyUser(
   phone: string,
   privyWalletId: string,
-  stellarPublicKey: string
+  stellarPublicKey: string,
+  privyUserId?: string
 ): Promise<StoredUser> {
-  const next: StoredUser = { phone, privyWalletId, stellarPublicKey };
+  const next: StoredUser = {
+    phone,
+    privyWalletId,
+    stellarPublicKey,
+    privyUserId: privyUserId ?? null,
+  };
   await mutateJsonFile<DbFile>(dbPath(), emptyDb(), (db) => {
     const index = db.users.findIndex((user) => user.phone === phone);
     if (index >= 0) {
@@ -88,6 +101,10 @@ export async function createTransaction(input: {
   txHash?: string;
   sep24TransactionId?: string;
   sep24JwtEnc?: string;
+  providerId?: string;
+  horizonConfirmed?: boolean;
+  anchorConfirmed?: boolean;
+  lastNotifiedStatus?: string;
 }): Promise<StoredTransaction> {
   const row: StoredTransaction = {
     id: `tx_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -106,6 +123,24 @@ export async function updateTransactionStatus(
   status: string,
   txHash?: string
 ): Promise<void> {
+  await patchSep24Transaction(sep24TransactionId, { status, txHash });
+}
+
+export async function patchSep24Transaction(
+  sep24TransactionId: string,
+  patch: Partial<
+    Pick<
+      StoredTransaction,
+      | "status"
+      | "txHash"
+      | "horizonConfirmed"
+      | "anchorConfirmed"
+      | "lastNotifiedStatus"
+      | "providerId"
+    >
+  >
+): Promise<StoredTransaction | null> {
+  let updated: StoredTransaction | null = null;
   await mutateJsonFile<DbFile>(dbPath(), emptyDb(), (db) => {
     const row = db.transactions.find(
       (item) => item.sep24TransactionId === sep24TransactionId
@@ -113,34 +148,72 @@ export async function updateTransactionStatus(
     if (!row) {
       return db;
     }
-    row.status = status;
-    if (txHash) {
-      row.txHash = txHash;
+    if (patch.status !== undefined) row.status = patch.status;
+    if (patch.txHash) row.txHash = patch.txHash;
+    if (patch.horizonConfirmed !== undefined) {
+      row.horizonConfirmed = patch.horizonConfirmed;
     }
+    if (patch.anchorConfirmed !== undefined) {
+      row.anchorConfirmed = patch.anchorConfirmed;
+    }
+    if (patch.lastNotifiedStatus !== undefined) {
+      row.lastNotifiedStatus = patch.lastNotifiedStatus;
+    }
+    if (patch.providerId) row.providerId = patch.providerId;
+    updated = { ...row };
     return db;
   });
+  return updated;
+}
+
+export async function findSep24Transaction(
+  sep24TransactionId: string
+): Promise<StoredTransaction | null> {
+  return (
+    readDb().transactions.find(
+      (item) => item.sep24TransactionId === sep24TransactionId
+    ) ?? null
+  );
 }
 
 export async function upsertYieldPosition(
   phone: string,
   bUsdcBalance: string,
-  lastSyncedValueUsdc: string
+  lastSyncedValueUsdc: string,
+  extras?: { sharesStroops?: string; accruedYieldUsdc?: string }
 ): Promise<void> {
   const next: StoredYieldPosition = {
     phone,
+    sharesStroops: extras?.sharesStroops ?? bUsdcBalance,
     bUsdcBalance,
+    accruedYieldUsdc: extras?.accruedYieldUsdc ?? "0",
     lastSyncedValueUsdc,
     updatedAt: new Date().toISOString(),
   };
   await mutateJsonFile<DbFile>(dbPath(), emptyDb(), (db) => {
     const index = db.yieldPositions.findIndex((item) => item.phone === phone);
     if (index >= 0) {
-      db.yieldPositions[index] = next;
+      db.yieldPositions[index] = {
+        ...db.yieldPositions[index],
+        ...next,
+      };
     } else {
       db.yieldPositions.push(next);
     }
     return db;
   });
+}
+
+export async function listYieldPositions(): Promise<StoredYieldPosition[]> {
+  return readDb().yieldPositions;
+}
+
+export function positionSharesStroops(row: StoredYieldPosition): bigint {
+  const raw = row.sharesStroops || row.bUsdcBalance || "0";
+  if (!/^-?\d+$/.test(raw)) {
+    return 0n;
+  }
+  return BigInt(raw);
 }
 
 export async function listPendingSep24(): Promise<StoredTransaction[]> {

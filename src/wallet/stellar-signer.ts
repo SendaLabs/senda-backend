@@ -6,13 +6,15 @@ export interface SignableAccount {
   publicKey: string;
   secretKey?: string;
   privyWalletId?: string;
+  privyUserId?: string;
+  phone?: string;
 }
 
 export async function signStellarTransaction(
   account: SignableAccount,
   tx: Transaction
 ): Promise<void> {
-  if (usePrivyWallets() && account.privyWalletId) {
+  if (account.privyWalletId && usePrivyWallets()) {
     const signature = await signStellarHash(
       account.privyWalletId,
       Buffer.from(tx.hash())

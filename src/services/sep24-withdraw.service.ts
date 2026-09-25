@@ -8,12 +8,14 @@ import {
 import {
   createTransaction,
   ensureUserRecord,
+  findSep24Transaction,
   listPendingSep24,
-  updateTransactionStatus,
+  patchSep24Transaction,
 } from "../db/users.repository";
+import { routeOfframpProvider } from "../offramp/provider-router";
 import { decryptString, encryptString } from "./file-vault.service";
 import { getSep10Jwt } from "../sep/sep10";
-import { pollTransactionStatus, startWithdraw } from "../sep/sep24";
+import { pollTransactionStatus } from "../sep/sep24";
 import { getInclusionFee } from "./fees.service";
 import { getOrCreateUserAccount } from "./stellar.service";
 import {
@@ -44,6 +46,33 @@ export function assertSep24AmountIn(
     throw new Error("El ancla pidió otro monto. No pagamos.");
   }
   return incoming;
+}
+
+export function canCompleteSep24Payout(row: {
+  horizonConfirmed?: boolean;
+  anchorConfirmed?: boolean;
+}): boolean {
+  return row.horizonConfirmed === true && row.anchorConfirmed === true;
+}
+
+export function sep24StatusCopy(status: string): string | null {
+  switch (status) {
+    case "incomplete":
+    case "pending":
+      return "Estamos armando tu retiro a Mercado Pago. En un momento te mando el enlace o el siguiente paso.";
+    case "pending_user_transfer_start":
+      return "Ya pasamos tus dólares al ancla. Ahora esperamos que Horizon confirme el envío y que Mercado Pago reciba el aviso.";
+    case "pending_anchor":
+    case "pending_external":
+      return "El ancla ya tiene tus dólares y está acreditándolos en tu Mercado Pago. Te aviso cuando quede confirmado.";
+    case "completed":
+      return "✅ Listo. El retiro a Mercado Pago está confirmado: lo vimos en el ancla y también en Stellar.";
+    case "error":
+    case "expired":
+      return "El retiro a Mercado Pago no se pudo completar. Tu saldo sigue en Senda. Pedime otro cuando quieras.";
+    default:
+      return null;
+  }
 }
 
 function horizon(): Horizon.Server {
@@ -78,6 +107,36 @@ function addWithdrawMemo(
     return builder.addMemo(Memo.hash(raw));
   }
   return builder.addMemo(Memo.text(memo.slice(0, 28)));
+}
+
+export async function confirmHorizonTransaction(
+  hash: string
+): Promise<boolean> {
+  try {
+    const tx = await horizon().transactions().transaction(hash).call();
+    return tx.successful === true;
+  } catch {
+    return false;
+  }
+}
+
+async function notifyStatus(
+  phone: string,
+  transactionId: string,
+  status: string
+): Promise<void> {
+  const row = await findSep24Transaction(transactionId);
+  if (row?.lastNotifiedStatus === status) {
+    return;
+  }
+  const copy = sep24StatusCopy(status);
+  await patchSep24Transaction(transactionId, { lastNotifiedStatus: status });
+  if (!copy) {
+    return;
+  }
+  await sendWhatsAppMessage(phone, copy).catch((error) =>
+    logSafeError("SEP-24 aviso", error)
+  );
 }
 
 async function sendToAnchor(
@@ -122,18 +181,39 @@ export async function startMercadoPagoWithdraw(
     throw new Error("No te alcanza el saldo para ese retiro a Mercado Pago");
   }
 
-  const jwt = await getSep10Jwt(phone);
-  const started = await startWithdraw(user.publicKey, jwt, amount);
+  const provider = routeOfframpProvider("mercado_pago_ars");
+  const started = await provider.startWithdraw({ phone, amount });
+  if (!started.url || !started.authToken) {
+    throw new Error("El proveedor de retiro no devolvió enlace o sesión");
+  }
+
   await createTransaction({
     phone,
     type: "withdraw_sep24",
     amountUsdc: String(amount),
     status: "pending",
     sep24TransactionId: started.id,
-    sep24JwtEnc: encryptString(jwt),
+    sep24JwtEnc: encryptString(started.authToken),
+    providerId: started.providerId,
+    horizonConfirmed: false,
+    anchorConfirmed: false,
   });
-  void watchSep24Transaction(phone, jwt, started.id, amount);
-  return started;
+  await notifyStatus(phone, started.id, "pending");
+  void watchSep24Transaction(phone, started.authToken, started.id, amount);
+  return { url: started.url, id: started.id };
+}
+
+async function maybeComplete(
+  phone: string,
+  transactionId: string
+): Promise<boolean> {
+  const row = await findSep24Transaction(transactionId);
+  if (!row || !canCompleteSep24Payout(row)) {
+    return false;
+  }
+  await patchSep24Transaction(transactionId, { status: "completed" });
+  await notifyStatus(phone, transactionId, "completed");
+  return true;
 }
 
 async function watchSep24Transaction(
@@ -148,6 +228,8 @@ async function watchSep24Transaction(
     await new Promise((resolve) => setTimeout(resolve, 8000));
     try {
       const tx = await pollTransactionStatus(jwt, transactionId);
+      await notifyStatus(phone, transactionId, tx.status);
+
       if (
         !sentOnChain &&
         tx.status === "pending_user_transfer_start" &&
@@ -162,22 +244,34 @@ async function watchSep24Transaction(
           tx.withdraw_memo_type
         );
         sentOnChain = true;
-        await updateTransactionStatus(transactionId, tx.status, hash);
+        await patchSep24Transaction(transactionId, {
+          status: tx.status,
+          txHash: hash,
+        });
+
+        for (let horizonAttempt = 0; horizonAttempt < 15; horizonAttempt += 1) {
+          if (await confirmHorizonTransaction(hash)) {
+            await patchSep24Transaction(transactionId, {
+              horizonConfirmed: true,
+            });
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
         continue;
       }
 
       if (tx.status === "completed") {
-        await updateTransactionStatus(transactionId, "completed");
-        await sendWhatsAppMessage(phone, "✅ Tu retiro llegó a Mercado Pago.");
-        return;
+        await patchSep24Transaction(transactionId, { anchorConfirmed: true });
+        if (await maybeComplete(phone, transactionId)) {
+          return;
+        }
+        continue;
       }
 
       if (tx.status === "error" || tx.status === "expired") {
-        await updateTransactionStatus(transactionId, tx.status);
-        await sendWhatsAppMessage(
-          phone,
-          "El retiro a Mercado Pago no se pudo completar. Probá de nuevo en un rato."
-        );
+        await patchSep24Transaction(transactionId, { status: tx.status });
+        await notifyStatus(phone, transactionId, tx.status);
         return;
       }
     } catch (error) {
@@ -185,11 +279,8 @@ async function watchSep24Transaction(
     }
   }
 
-  await updateTransactionStatus(transactionId, "expired");
-  await sendWhatsAppMessage(
-    phone,
-    "No pude terminar el retiro a Mercado Pago. Si el enlace sigue abierto, abrilo de nuevo o pedime otro."
-  ).catch((error) => logSafeError("SEP-24 timeout aviso", error));
+  await patchSep24Transaction(transactionId, { status: "expired" });
+  await notifyStatus(phone, transactionId, "expired");
 }
 
 export async function resumePendingSep24Withdrawals(): Promise<void> {

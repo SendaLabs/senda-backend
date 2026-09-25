@@ -35,12 +35,35 @@ export function humanizeLedgerError(error: unknown): string {
     return "Por hoy llegaste al tope de envíos. Probá más tarde.";
   }
 
+  if (error instanceof Error && error.name === "WalletSetupRequiredError") {
+    return error.message;
+  }
+
+  if (
+    error instanceof Error &&
+    /PRIVY_SESSION_SIGNER_PRIVATE_KEY|delegado el signer/i.test(error.message)
+  ) {
+    return "Tu cuenta todavía no delegó el permiso de Senda. Completá el alta y escribime de nuevo.";
+  }
+
   if (error instanceof Error && error.name === "CreditInFlightError") {
     return "Ese envío ya se está procesando. Dame un toque y pedime el saldo.";
   }
 
+  if (
+    /no te alcanza el saldo para (poner esa plata a rendir|ese retiro a mercado pago)/.test(
+      raw
+    )
+  ) {
+    return "No te alcanza el saldo para eso. Pedime el saldo o mandá un monto más chico.";
+  }
+
   if (/no pude (poner|armar).*rendir|no mandamos nada a la red/.test(raw)) {
-    return "No pude poner esa plata a rendir. Probá de nuevo en un rato.";
+    return "No pude poner esa plata a rendir. Probá de nuevo en un rato o seguí con el saldo y el retiro.";
+  }
+
+  if (/sep-?10|sep-?24|testanchor|home domain/.test(raw)) {
+    return "No pude abrir el retiro a Mercado Pago ahora. El envío y el saldo siguen andando. Probá de nuevo en un rato.";
   }
 
   if (
@@ -78,7 +101,7 @@ export function replyUserError(error: unknown): string {
   const raw = errorText(error).toLowerCase();
   const isLedger =
     (error instanceof Error &&
-      /Usdc|Sac|Amount|Credit|Offramp|Blend/.test(error.name)) ||
+      /Usdc|Sac|Amount|Credit|Offramp|Blend|WalletSetup/.test(error.name)) ||
     /stellar|soroban|horizon|hosterror|wasm|underfund|tx_insufficient|op_|blend|usdc|ledger/.test(
       raw
     );

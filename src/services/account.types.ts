@@ -2,6 +2,8 @@ export interface CustodialAccount {
   publicKey: string;
   secretKey: string;
   privyWalletId?: string;
+  privyUserId?: string;
+  phone?: string;
 }
 
 export type CustodySource = "derived" | "legacy";

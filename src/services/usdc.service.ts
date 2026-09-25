@@ -59,6 +59,7 @@ export interface UsdcWallet {
   publicKey: string;
   secretKey?: string;
   privyWalletId?: string;
+  phone?: string;
 }
 
 export interface UsdcTransferResult {

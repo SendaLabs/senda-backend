@@ -1,166 +1,148 @@
 # Senda Backend
 
-Backend de **Senda**: un bot de WhatsApp que acredita y consulta fondos en **Stellar Testnet**, con un contrato **Soroban** para registrar saldos.
+Bot de WhatsApp en español (texto + nota de voz) que mueve **USDC en Stellar Testnet** sin mostrarle claves ni jerga de blockchain al usuario.
 
-Cada número de WhatsApp se asocia a una cuenta Stellar por **custodia invisible (SEP-30)**: la cuenta se deriva o se recupera desde el teléfono, sin frases semilla. El usuario no ve claves ni hashes.
+Hecho para el **Argentina Builder Challenge (BAF × Stellar), categoría genesis**. La arquitectura copia el **patrón de Azza** (pagos y ahorro por WhatsApp en África; SCF #44) y lo adapta a Argentina: ancla **SEP-24** en vez de Bridge, destino **Mercado Pago / CVU**, y wallets diarias **MPC Privy** en vez de custodia API-level.
 
-Si `USE_PRIVY_WALLETS=true`, esa misma cuenta pasa a una wallet **MPC de Privy** (firma por hash Ed25519). Si Privy falla o el flag está apagado, se sigue usando la custodia local.
+## Qué es nuevo en esta iteración
+
+Sobre lo que ya existía (saludo, saldo, envío P2P, retiro a efectivo `SENDA-xxx`):
+
+1. **Wallets MPC vía Privy, self-custodial.** El usuario nuevo recibe un link de un solo uso y abre su wallet **una vez** en `/web-setup` (login SMS con el mismo WhatsApp). Ahí crea la wallet Stellar y delega el session signer de Senda con tope de 500 USDC por envío y 2000 por día. El backend **no** crea la wallet. SEP-30 queda si `USE_PRIVY_WALLETS=false`.
+2. **Tesorería + Horizon Listener.** Cuenta pooled de Senda, trustline USDC, SSE de pagos con reconexión y backoff. Un depósito **no** se confirma hasta el evento de Horizon.
+3. **Retiro a Mercado Pago (nuestro “Bridge”).** Provider Router con un adapter SEP-24 (`testanchor.stellar.org` en dev). Completo solo si confirman **el ancla y Horizon**. WhatsApp avisa cada estado.
+4. **Ahorro pooled vía Blend v2.** Una tesorería deposita en Blend. El share de cada usuario vive en `YieldPosition` (off-chain). Cron horario + reconciliación diaria. Si el pool está muy usado, se bloquean depósitos.
+5. **Cobros QR SEP-7.** «generame un link de cobro» manda `web+stellar:pay` como imagen + texto. Si quien paga también usa Senda, paga desde el chat; si no, el link abre Lobstr/Freighter.
+
+Foto previa de este trabajo: [`AUDIT.md`](./AUDIT.md).
+
+## Custodia (igual que Azza, más Privy)
+
+| Producto | Modelo |
+|---|---|
+| Saldo diario (enviar, recibir, efectivo, MP, cobros) | Wallet Privy del usuario + session signer de Senda (policy de gasto). Fallback SEP-30 si Privy está apagado |
+| Rendimiento Blend | **Pooled**: una posición on-chain de Senda. El share se trackea off-chain y se reconcilia |
+
+## Cómo hablarle al bot
+
+Escribí el número o la frase. También una nota de voz.
+
+1. Enviar USDC — `mandar 5`
+2. Ver saldo — `cuánto tengo`
+3. Retirar en efectivo — `retirar 2 en MoneyGram`
+4. Pasar a Mercado Pago — `retirar a mercado pago`
+5. Poner a rendir — `poner 1 a rendir`
+6. Cuánto tengo rindiendo — `cuánto tengo rindiendo`
+
+También: `generame un link de cobro`. Si te pegan un `web+stellar:pay?...`, Senda intenta pagarlo con tu wallet.
+
+## Arquitectura (nombres al estilo Azza)
+
+```
+WhatsApp Bot Service (conversation + NLU + sesiones en data/sessions.json)
+  → FiatRamp / Offramp (efectivo simulado + SEP-24)
+  → Provider Router (hoy: Sep24AnchorAdapter)
+  → Wallet Manager (Privy self-custodial + session signer, o SEP-30)
+  → web-setup (Next.js, alta de una sola vez)
+  → Stellar Wallet Service / tesorería + Horizon Listener
+  → Savings Service → Yield Accounting (cron) → Blend v2
+  → QR Payments (SEP-7)
+  → JSON en data/  (Prisma es esquema de referencia, no corre)
+```
+
+No hay BullMQ ni PostgreSQL en runtime. No los fingimos.
 
 ## Stack
 
 - Node.js 22.12+ / TypeScript / Express
-- WhatsApp Cloud API (Meta)
-- `@stellar/stellar-sdk` (Horizon + Soroban RPC)
-- Contrato Soroban en Rust (`contracts/`)
-
-## Cómo funciona el bot
-
-1. El primer mensaje dispara un video de bienvenida y el menú. Cada `hola` vuelve a mandar el banner.
-2. **Enviar / recibir USDC:** el bot acredita USDC en la cuenta de ese WhatsApp (SAC + Horizon).
-3. **Saldo:** consulta el SAC asociado a esa identidad.
-4. **Retiro en efectivo:** simula una orden con MoneyGram, Western Union o un comercio Senda y bloquea el USDC transfiriéndolo al vault de offramp.
-5. **Retiro a Mercado Pago (SEP-24):** autentica con SEP-10, abre el flujo interactivo del ancla de test y hace polling. Cuando el ancla pide el USDC, el bot lo transfiere con memo.
-6. **Rendimiento (Blend Testnet):** «poner a rendir», «cuánto tengo rindiendo» y «sacar de rendir» sobre el pool de Blend.
-7. **Notas de voz:** se descargan de Meta, se transcriben con Whisper y se tratan como texto.
-
-## Estructura
-
-```
-src/
-  index.ts                      # Express, /health y /webhook
-  config/flags.ts               # USE_PRIVY_WALLETS y DATABASE_URL
-  db/users.repository.ts        # User / Transaction / YieldPosition (JSON)
-  wallet/                       # Cliente Privy + firma Stellar (MPC o seed)
-  sep/                          # SEP-10 JWT y SEP-24 withdraw
-  services/
-    conversation.service.ts     # Máquina de estados del bot
-    session.service.ts          # Sesión en memoria por teléfono
-    intent.service.ts           # NLU: envío, saldo, efectivo, MP, rendimiento
-    identity.service.ts         # Identidad SEP-30 (WhatsApp → phone_number)
-    derivation.service.ts       # HKDF + passkey lógica por teléfono
-    recovery.store.ts           # Registro y recuperación de cuentas
-    custody.service.ts          # Custodia invisible / resolve + recover
-    stellar.service.ts          # Pagos, contrato y consultas Testnet
-    usdc.service.ts             # SAC USDC (acreditar y bloquear)
-    offramp.service.ts          # Retiro en efectivo + lock SAC
-    sep24-withdraw.service.ts   # Retiro interactivo a Mercado Pago
-    blend.service.ts            # Supply / position / withdraw en Blend
-    offramp.partners.ts         # MoneyGram / comercios (simulado)
-    offramp.store.ts            # Órdenes de retiro
-    wallet.store.ts             # Persistencia de secretos (gitignored)
-    remittance.service.ts       # Parseo del monto
-    whatsapp.media.service.ts   # Descarga de audio de Meta
-    transcription.service.ts    # Whisper: nota de voz → texto
-  public/                       # Assets locales (video)
-prisma/schema.prisma            # Modelo de referencia (SQLite)
-contracts/                      # SendaContract (Soroban)
-scripts/deploy-contract.js      # Build + deploy a Testnet
-test-video.js                   # Prueba aislada del video
-```
-
-## Requisitos
-
-- Node.js >= 22.12
-- Cuenta de [WhatsApp Cloud API](https://developers.facebook.com/docs/whatsapp/cloud-api)
-- Cuenta operativa Stellar Testnet fondeada (Friendbot)
-- [Stellar CLI](https://developers.stellar.org/docs/tools/stellar-cli) (solo para compilar/desplegar el contrato)
+- WhatsApp Cloud API (Graph v22)
+- Mini sitio `/web-setup` (Next.js + `@privy-io/react-auth`)
+- `@stellar/stellar-sdk`, `@privy-io/node`, `@blend-capital/blend-sdk`, `qrcode`
+- Contrato Soroban de laboratorio en `contracts/` — **no** entra al flujo del bot
 
 ## Setup local
 
 ```bash
 cp .env.example .env
 npm install
+npm test
 npm run dev
 ```
 
-El servidor escucha en `http://localhost:3000` (o el `PORT` del `.env`).
+Webhook: `GET/POST /webhook`. Health: `/health`. Listo para demo: `/ready`.
 
-Para que Meta llegue al webhook en local hace falta un túnel (ngrok, Cloudflare Tunnel, etc.) apuntando a:
+Alta web (otro proceso):
 
-- `GET /webhook` — verificación (`VERIFY_TOKEN`)
-- `POST /webhook` — mensajes entrantes
+```bash
+cd web-setup
+cp .env.example .env.local
+npm install
+npm run dev
+```
 
-### Variables de entorno
+El primer mensaje de un número no registrado manda un link corto `/s/:token` → `/setup?token=`. Después de login SMS + wallet + `addSigners`, el sitio hace `POST /api/link-wallet` y muestra «Listo, volvé a WhatsApp».
+
+## Blockers (alcance honesto)
+
+El jurado pide evidencia **end-to-end en un ambiente desplegado**, no solo local.
+
+- **Deploy:** Render lee `main`. Este trabajo vive en commits de la rama actual y **no está en producción hasta que se haga merge/push a `main`**. Hasta entonces, el e2e desplegado es un **blocker explícito**.
+- **Privy:** sin `PRIVY_APP_ID` / `PRIVY_APP_SECRET` en el host, el bot cae a SEP-30. El patrón MPC no se puede demostrar en el deploy vacío.
+- **Mercado Pago real:** el ancla de dev es `testanchor.stellar.org`. Alfred Pay / Ripio Ramps quedan como candidatos de producción; no hay CVU real acreditado.
+- **Retiro en efectivo:** simulado (código `SENDA-xxx`). No hay MoneyGram ni Western Union en vivo.
+- **KYC / tiers:** en Testnet el ahorro no pide documentos.
+- **BullMQ, Postgres, Bridge, mainnet:** fuera de scope.
+
+No hay tareas “a medias” en el código. Lo que no llega a producción está acá, no escondido como feature rota.
+
+## Variables nuevas / importantes
 
 | Variable | Uso |
 |---|---|
-| `PORT` | Puerto del servidor |
-| `WHATSAPP_TOKEN` | Token de la Cloud API |
-| `WHATSAPP_PHONE_NUMBER_ID` | ID del número de negocio |
-| `VERIFY_TOKEN` | Token de verificación del GET `/webhook` (no puede estar vacío) |
-| `WHATSAPP_APP_SECRET` | App Secret de Meta para validar `X-Hub-Signature-256` |
-| `WHATSAPP_API_VERSION` | Versión de Graph (default `v22.0`) |
-| `STELLAR_NETWORK` | `testnet` o `public` |
-| `STELLAR_SECRET_KEY` | Seed de la cuenta operativa (nunca commitear) |
-| `STELLAR_PUBLIC_KEY` | Clave pública operativa (opcional) |
-| `STELLAR_CONTRACT_ID` | ID `C…` del contrato en Testnet |
-| `CUSTODY_MASTER_SECRET` | Secreto HKDF para derivar/recuperar cuentas (SEP-30). Obligatorio; no puede ser `STELLAR_SECRET_KEY`. Si lo rotás, las wallets ya persistidas no cambian de dirección: el proceso falla hasta migrar. |
-| `FILE_VAULT_SECRET` | Clave AES-256-GCM para cifrar códigos de retiro y seeds legado en `data/`. Distinta de la operativa y de la master. |
-| `STELLAR_OFFRAMP_PUBLIC_KEY` | Vault que recibe el USDC al retirar efectivo. Tiene que ser una `G…` distinta de la operativa. |
-| `OPENAI_API_KEY` | Clave para transcribir notas de voz con Whisper |
-| `OPENAI_TRANSCRIPTION_MODEL` | Modelo de transcripción (default `whisper-1`) |
-| `USE_PRIVY_WALLETS` | `true` usa wallets MPC de Privy; `false` (default) deja SEP-30 |
-| `PRIVY_APP_ID` / `PRIVY_APP_SECRET` | Credenciales de Privy (nunca commitear) |
+| `PRIVY_APP_ID` / `PRIVY_APP_SECRET` | Activan el flujo Privy (salvo `USE_PRIVY_WALLETS=false`) |
+| `PRIVY_SESSION_SIGNER_ID` / `PRIVY_SESSION_SIGNER_PRIVATE_KEY` | Session signer delegado en `/setup` |
+| `PRIVY_SPEND_POLICY_ID` | Policy del dashboard (500 USDC/tx, 2000/día) |
+| `WEB_SETUP_PUBLIC_URL` / `WEB_SETUP_ORIGIN` | Mini sitio de alta + CORS |
+| `WHATSAPP_CLICK_TO_CHAT` | Número para el `wa.me` de regreso |
+| `STELLAR_TREASURY_SECRET_KEY` | Tesorería pooled. Si falta, usa `STELLAR_SECRET_KEY` |
 | `SEP24_HOME_DOMAIN` | Ancla SEP-24 (default `testanchor.stellar.org`) |
 | `BLEND_POOL_ID` | Pool Blend Testnet |
-| `BLEND_USDC_SAC_ID` | SAC USDC del pool (si falta, usa `USDC_SAC_CONTRACT_ID`) |
-| `DATABASE_URL` | Referencia Prisma (`file:../data/senda.db`); el bot usa `data/senda-db.json` |
+| `BLEND_MAX_UTILIZATION` | Tope para aceptar depósitos (default `0.85`) |
+| `CUSTODY_MASTER_SECRET` | Fallback SEP-30. Distinto de la operativa |
+| `FILE_VAULT_SECRET` | Cifrado en reposo. Distinto de los otros |
+| `STELLAR_OFFRAMP_PUBLIC_KEY` | Vault de efectivo. Distinta de la operativa |
 
-Copiá valores reales solo en `.env`. Ese archivo está en `.gitignore`.
+Lista completa: `.env.example`. Nunca commitear `.env`.
 
-## Contrato Soroban
+## Persistencia
 
-`SendaContract` expone:
+Runtime: JSON en `data/` (`senda-db.json`, `sessions.json`, `wallets.json`, …). `prisma/schema.prisma` documenta User / Transaction / YieldPosition. Prisma **no** se ejecuta.
 
-- `ping` — health del contrato
-- `admin` — admin configurado en el deploy
-- `credit(user, amount)` — acredita saldo (solo admin)
-- `balance(user)` — saldo persistido
+## Contrato `SendaContract`
 
-```bash
-npm run contract:build
-npm run contract:deploy
-```
-
-`contract:deploy` usa `STELLAR_SECRET_KEY`, fondea el admin en el constructor y imprime el `STELLAR_CONTRACT_ID` para pegar en `.env` y en Render.
-
-Sin `STELLAR_CONTRACT_ID` el bot igual envía el pago XLM en Horizon; el registro en contrato queda pendiente.
+Laboratorio (`ping`, `credit`, `balance`). El saldo que ve el usuario es el **SAC USDC** `CDT2MY3QNV2RT2XULQWWXX2JELUWRWNXNKONCYG5MTIGZM7G5S2QNNGB`.
 
 ## Scripts
 
 | Comando | Qué hace |
 |---|---|
 | `npm run dev` | Servidor con recarga |
-| `npm run build` / `npm start` | Compila y corre `dist/` |
-| `npm run typecheck` | TypeScript sin emitir |
-| `npm run contract:build` | Compila el WASM |
-| `npm run contract:deploy` | Compila y despliega a Testnet |
-| `node test-video.js` | Prueba el envío de video (requiere `TO` y credenciales) |
+| `npm test` | Tests |
+| `npm run typecheck` | TypeScript |
+| `npm run build` / `npm start` | `dist/` |
+| `npm run contract:build` | WASM de laboratorio |
 
 ## Deploy (Render)
 
-1. Conectá el repo `main`.
-2. Build: `npm install && npm run build`
-3. Start: `npm start`
-4. Cargá las mismas variables que en `.env` (nunca el archivo `.env`).
-5. En Meta, el webhook debe ser `https://<tu-servicio>/webhook`.
+1. `main` → build `npm install && npm run build` → start `npm start`
+2. Cargar env (nunca el archivo `.env`)
+3. Webhook Meta: `https://<servicio>/webhook`
+4. Chequear `GET /ready`
 
-Las identidades SEP-30, wallets y órdenes de retiro viven en `data/` (`identities.json`, `wallets.json`, `offramp-orders.json`, `senda-db.json`, gitignored). En un disco efímero de Render se recrean; con `CUSTODY_MASTER_SECRET` fijo la misma cuenta se vuelve a derivar desde el WhatsApp. `data/wallets.json` solo guarda la `publicKey` de cuentas derivadas: la seed se recalcula en memoria. Los códigos de pickup se guardan cifrados con `FILE_VAULT_SECRET`. Rotar la master no mueve fondos de la operativa (`STELLAR_SECRET_KEY`); sí invalida la derivación de usuarios ya persistidos hasta una migración explícita.
-
-## Wallets Privy (opcional)
-
-Con `USE_PRIVY_WALLETS=true` el bot crea una wallet Stellar en Privy (`owner_id = whatsapp:<teléfono>`) y firma con `raw_sign` sobre el hash Ed25519 de la transacción. Si Privy no responde, cae a la custodia SEP-30. Dejá el flag en `false` en Render hasta tener `PRIVY_APP_ID` y `PRIVY_APP_SECRET`.
-
-## Retiro a Mercado Pago (SEP-24)
-
-Frases como «retirar a Mercado Pago» o «pasar 20 a mi cuenta» inician SEP-10 + SEP-24 contra `testanchor.stellar.org`. El usuario recibe el enlace interactivo. El bot hace polling y, cuando el estado es `pending_user_transfer_start`, manda el USDC al ancla con el memo pedido.
-
-## Rendimiento en Blend
-
-«poner 10 a rendir», «cuánto tengo rindiendo» y «sacar de rendir» hablan con el pool Blend de Testnet (`BLEND_POOL_ID`). Se usa `SupplyCollateral` / `WithdrawCollateral` (no Supply con deuda). Al consultar, se lee la posición on-chain; el JSON solo cachea stroops. Si el SDK no arma la operación, no se manda nada a Soroban.
+Disco efímero: con `CUSTODY_MASTER_SECRET` fijo se rederiva la cuenta SEP-30. Las wallets Privy se crean en `/web-setup` y se guardan como `privyUserId` + `privyWalletId` en `senda-db.json`.
 
 ## Seguridad
 
-- No subas `.env`, seeds ni `data/wallets.json`.
-- El token de Meta y `STELLAR_SECRET_KEY` son secretos.
-- Este proyecto está pensado para **Testnet**. No uses seeds de mainnet.
+- Testnet nada más.
+- No subir seeds, `.env` ni `data/`.
+- El webhook exige firma HMAC de Meta.

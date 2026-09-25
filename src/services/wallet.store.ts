@@ -56,6 +56,7 @@ export function getWalletByPhone(phone: string): CustodialAccount | undefined {
     publicKey: record.publicKey,
     secretKey: hydrateSecret(record),
     privyWalletId: record.privyWalletId,
+    phone,
   };
 }
 
@@ -89,6 +90,7 @@ export async function saveWallet(
     publicKey: wallet.publicKey,
     secretKey: wallet.secretKey,
     privyWalletId: wallet.privyWalletId,
+    phone,
   };
 }
 

@@ -10,6 +10,7 @@ datasource db {
 model User {
   id               String          @id @default(cuid())
   phone            String          @unique
+  privyUserId      String?
   privyWalletId    String?
   stellarPublicKey String
   createdAt        DateTime        @default(now())
@@ -27,6 +28,10 @@ model Transaction {
   status             String
   txHash             String?
   sep24TransactionId String?
+  providerId         String?
+  horizonConfirmed   Boolean  @default(false)
+  anchorConfirmed    Boolean  @default(false)
+  lastNotifiedStatus String?
   createdAt          DateTime @default(now())
 }
 
@@ -34,7 +39,9 @@ model YieldPosition {
   id                  String   @id @default(cuid())
   phone               String   @unique
   user                User     @relation(fields: [phone], references: [phone])
+  sharesStroops       String   @default("0")
   bUsdcBalance        String   @default("0")
+  accruedYieldUsdc    String   @default("0")
   lastSyncedValueUsdc String   @default("0")
   updatedAt           DateTime @updatedAt
 }
