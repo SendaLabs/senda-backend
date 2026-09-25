@@ -61,7 +61,7 @@ test("reconoce el enlace corto de cobro", () => {
   );
 });
 
-test("el QR es un PNG", async () => {
-  const png = await renderSep7QrPng("web+stellar:pay?destination=GTEST");
+test("el QR puede guardar un enlace https que la cámara sí lee", async () => {
+  const png = await renderSep7QrPng("https://senda-backend-2r5k.onrender.com/c/aabbccdd");
   assert.equal(png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])), true);
 });

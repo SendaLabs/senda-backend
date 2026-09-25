@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from "express";
-import { peekCobro } from "./cobro.store";
+import { cobroPublicUrl, peekCobro } from "./cobro.store";
 import { formatCobroAmount } from "./cobro-copy";
 import { buildSendaCobroUri, renderSep7QrPng } from "./sep7";
 
@@ -25,7 +25,7 @@ export function mountCobroRoutes(app: Express): void {
       res.sendStatus(404);
       return;
     }
-    const png = await renderSep7QrPng(buildSendaCobroUri(row.destination, row.amount));
+    const png = await renderSep7QrPng(cobroPublicUrl(String(req.params.token)));
     res.setHeader("Content-Type", "image/png");
     res.setHeader("Cache-Control", "no-store");
     res.send(png);
@@ -45,6 +45,7 @@ export function mountCobroRoutes(app: Express): void {
     }
 
     const title = cobroHeading(row.amount);
+    const payHref = escapeHtml(buildSendaCobroUri(row.destination, row.amount));
     res.type("html").send(`<!doctype html>
 <html lang="es">
 <head>
@@ -55,9 +56,9 @@ export function mountCobroRoutes(app: Express): void {
 <body style="font-family:sans-serif;max-width:28rem;margin:2rem auto;padding:0 1rem;text-align:center;color:#111">
   <p style="font-size:0.9rem;letter-spacing:0.08em;text-transform:uppercase">Senda</p>
   <h1 style="font-size:1.6rem">${escapeHtml(title)}</h1>
-  <p>Escaneá el código o reenviá este enlace al chat de Senda.</p>
-  <img alt="Código para pagar en Senda" src="/c/${escapeHtml(token)}/qr.png" width="280" height="280" />
-  <p>No hace falta copiar ninguna dirección rara. Si usás Senda, pegá este mismo enlace en el WhatsApp.</p>
+  <p>Si usás Senda, abrí WhatsApp y pegá este mismo enlace en el chat.</p>
+  <p><a href="${payHref}" style="display:inline-block;margin-top:1rem;padding:0.8rem 1.2rem;background:#111;color:#fff;text-decoration:none;border-radius:8px">Pagar</a></p>
+  <p style="color:#555;font-size:0.95rem">El botón «Pagar» es para otra app de dólares. No hace falta copiar ninguna dirección.</p>
 </body>
 </html>`);
   });
