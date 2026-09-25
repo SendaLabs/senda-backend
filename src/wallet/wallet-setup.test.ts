@@ -13,7 +13,7 @@ import {
 test("el invite de alta manda el link corto y pide el mismo WhatsApp", () => {
   const text = buildSetupInvite("Ana", "http://localhost:3000/s/abc");
   assert.match(text, /http:\/\/localhost:3000\/s\/abc/);
-  assert.match(text, /mismo número de WhatsApp/);
+  assert.match(text, /email/);
   assert.match(text, /Ana/);
   assert.match(text, /ya podés volver/);
   assert.match(text, /creada con éxito/);

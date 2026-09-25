@@ -19,22 +19,6 @@ type SetupInfo = {
 
 type Screen = "loading" | "invalid" | "login" | "working" | "done" | "error";
 
-function normalizePhone(value: string): string {
-  return value.replace(/\D/g, "");
-}
-
-function linkedPhoneOf(user: {
-  phone?: { number?: string } | null;
-  linkedAccounts?: Array<{ type?: string; number?: string; phoneNumber?: string }>;
-}): string {
-  const direct = user.phone?.number || "";
-  if (direct) {
-    return normalizePhone(direct);
-  }
-  const account = user.linkedAccounts?.find((item) => item.type === "phone");
-  return normalizePhone(account?.number || account?.phoneNumber || "");
-}
-
 function stellarWalletOf(user: {
   linkedAccounts?: Array<{
     type?: string;
@@ -59,7 +43,7 @@ function stellarWalletOf(user: {
 function SetupInner() {
   const search = useSearchParams();
   const token = search.get("token")?.trim() || "";
-  const { ready, authenticated, user, login, logout } = usePrivy();
+  const { ready, authenticated, user, login } = usePrivy();
   const { createWallet } = useCreateWallet();
   const { addSigners } = useSigners();
 
@@ -104,17 +88,6 @@ function SetupInner() {
 
   async function finishOnboarding() {
     if (!user || busy) {
-      return;
-    }
-
-    const expected = normalizePhone(info?.phoneE164 || "");
-    const got = linkedPhoneOf(user);
-    if (expected && got && expected !== got) {
-      setError(
-        "Ese SMS no es el mismo número de WhatsApp. Salí y entrá con el que te escribió Senda."
-      );
-      await logout();
-      setScreen("login");
       return;
     }
 
@@ -221,13 +194,12 @@ function SetupInner() {
     <div className="card">
       <h1>Qué bueno que estés acá</h1>
       <p>
-        Vamos a abrir tu cuenta. Es una sola vez. Entrá con el mismo número de
-        WhatsApp
-        {info?.phoneHint ? ` (${info.phoneHint})` : ""}.
+        Vamos a abrir tu cuenta. Es una sola vez. Entrá con tu email
+        {info?.phoneHint ? ` (este link es de tu WhatsApp ${info.phoneHint})` : ""}.
       </p>
       <p className="hint">
-        Después le das permiso a Senda para ayudarte a mover tu plata desde el
-        chat.
+        Te llega un código al correo. Después le das permiso a Senda para
+        ayudarte a mover tu plata desde el chat.
       </p>
       {error ? <p className="error">{error}</p> : null}
       {!authenticated ? (
@@ -235,15 +207,12 @@ function SetupInner() {
           type="button"
           onClick={() =>
             login({
-              loginMethods: ["sms"],
-              prefill: info?.phoneE164
-                ? { type: "phone", value: info.phoneE164 }
-                : undefined,
+              loginMethods: ["email"],
             })
           }
           disabled={busy}
         >
-          Continuar con mi WhatsApp
+          Continuar con mi email
         </button>
       ) : (
         <button type="button" onClick={() => void finishOnboarding()} disabled={busy}>

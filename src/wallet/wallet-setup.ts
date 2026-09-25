@@ -11,7 +11,7 @@ export function buildSetupInvite(name: string, url: string): string {
     "Tocá este enlace (es de Senda y dura 30 minutos):",
     url,
     "",
-    "Entrá con el mismo número de WhatsApp. Te llega un SMS, creás tu cuenta y listo.",
+    "Entrá con tu email. Te llega un código al correo, creás tu cuenta y listo.",
     "Cuando veas «Listo», ya podés volver: tu cuenta va a estar creada con éxito.",
   ].join("\n");
 }
