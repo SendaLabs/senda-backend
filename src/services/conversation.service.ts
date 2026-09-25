@@ -45,6 +45,7 @@ import {
   withdraw as withdrawFromBlend,
   YieldDepositsBlockedError,
 } from "../yield/savings-service";
+import { isPositiveUsdcAmount } from "../yield/yield-book";
 import {
   logSafeError,
   sendWhatsAppMessage,
@@ -336,14 +337,23 @@ async function handleBalanceQuery(to: string, name: string): Promise<void> {
   try {
     const state = await getUserOnChainState(to);
     const balance = state.usdcBalance ?? "0";
-    await sendWhatsAppMessage(
-      to,
-      [
-        `Tenés ${balance} USDC listos para usar.`,
-        "",
-        "Si querés enviar, escribí «mandar 10». Si querés efectivo, «retirar 15 en MoneyGram». También: Mercado Pago, poner a rendir o «generame un link de cobro».",
-      ].join("\n")
+    let yielding = "0";
+    try {
+      yielding = (await getBlendPosition(to)).currentValueUsdc;
+    } catch (error) {
+      logSafeError("Saldo: no se pudo leer lo que rinde", error);
+    }
+    const lines = [`Tenés ${balance} USDC listos para usar.`];
+    if (isPositiveUsdcAmount(yielding)) {
+      lines.push(
+        `Además tenés ${yielding} rindiendo. Si los querés de vuelta, escribí «sacar ${yielding} de rendir».`
+      );
+    }
+    lines.push(
+      "",
+      "Si querés enviar, escribí «mandar 10». Si querés efectivo, «retirar 15 en MoneyGram». También: Mercado Pago, poner a rendir o «generame un link de cobro»."
     );
+    await sendWhatsAppMessage(to, lines.join("\n"));
   } catch (error) {
     logSafeError("Error al consultar saldo", error);
     await sendWhatsAppMessage(to, humanizeLedgerError(error));
@@ -610,6 +620,13 @@ async function handleYieldPosition(to: string, name: string): Promise<void> {
   setSession(to, idleSession(name));
   try {
     const position = await getBlendPosition(to);
+    if (!isPositiveUsdcAmount(position.currentValueUsdc)) {
+      await sendWhatsAppMessage(
+        to,
+        "No tenés plata rindiendo ahora. Si querés poner, escribí «poner 5 a rendir»."
+      );
+      return;
+    }
     await sendWhatsAppMessage(
       to,
       [

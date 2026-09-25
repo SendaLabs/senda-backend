@@ -1,8 +1,13 @@
 import {
+  createTransaction,
   findYieldPosition,
   positionSharesStroops,
   upsertYieldPosition,
 } from "../db/users.repository";
+import {
+  YIELD_DEPOSIT_MEMO,
+  YIELD_WITHDRAW_MEMO,
+} from "./yield-book";
 import { canUseSavings } from "../services/identity.service";
 import { buildSubmitOperation } from "../services/blend.service";
 import { getOrCreateUserAccount } from "../services/stellar.service";
@@ -68,7 +73,9 @@ export async function deposit(
   }
 
   const treasury = await ensureTreasuryUsdcTrustline();
-  const transfer = await transferUsdcFromWallet(user, treasury, amount);
+  const transfer = await transferUsdcFromWallet(user, treasury, amount, {
+    memo: YIELD_DEPOSIT_MEMO,
+  });
   const credit = await waitForTreasuryCredit({
     from: user.publicKey,
     amountStroops: stroops,
@@ -98,6 +105,13 @@ export async function deposit(
   await upsertYieldPosition(userId, nextShares.toString(), fromUsdcStroops(nextShares), {
     sharesStroops: nextShares.toString(),
     accruedYieldUsdc: previous?.accruedYieldUsdc ?? "0",
+  });
+  await createTransaction({
+    phone: userId,
+    type: "yield_deposit",
+    amountUsdc: transfer.amountUsdc,
+    status: "confirmed",
+    txHash: blendHash,
   });
 
   return {
@@ -132,7 +146,8 @@ export async function withdraw(
   const payout = await transferUsdcFromWallet(
     getTreasuryWallet(),
     user.publicKey,
-    amount
+    amount,
+    { memo: YIELD_WITHDRAW_MEMO }
   );
 
   const previous = await findYieldPosition(userId);
@@ -149,6 +164,13 @@ export async function withdraw(
   const nextShares = currentShares > stroops ? currentShares - stroops : 0n;
   await upsertYieldPosition(userId, nextShares.toString(), fromUsdcStroops(nextShares), {
     sharesStroops: nextShares.toString(),
+  });
+  await createTransaction({
+    phone: userId,
+    type: "yield_withdraw",
+    amountUsdc: payout.amountUsdc,
+    status: "confirmed",
+    txHash: blendHash || payout.txHash,
   });
 
   if (options?.offrampToMercadoPago) {

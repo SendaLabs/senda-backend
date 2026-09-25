@@ -118,6 +118,8 @@ Lista completa: `.env.example`. Nunca commitear `.env`.
 
 Runtime: JSON en `data/` (`senda-db.json`, `sessions.json`, `wallets.json`, …). `prisma/schema.prisma` documenta User / Transaction / YieldPosition. Prisma **no** se ejecuta.
 
+El disco de Render es efímero. Lo que está rindiendo se reconstruye desde Horizon (pagos USDC del usuario a tesorería). Un crédito de «mandar» no se resta; solo baja un retiro con memo `senda-y-out`. Para no perder sesiones ni el mapeo Privy, montá un disco y seteá `SENDA_DATA_DIR`.
+
 ## Contrato `SendaContract`
 
 Laboratorio (`ping`, `credit`, `balance`). El saldo que ve el usuario es el **SAC USDC** `CDT2MY3QNV2RT2XULQWWXX2JELUWRWNXNKONCYG5MTIGZM7G5S2QNNGB`.
@@ -139,7 +141,7 @@ Laboratorio (`ping`, `credit`, `balance`). El saldo que ve el usuario es el **SA
 3. Webhook Meta: `https://<servicio>/webhook`
 4. Chequear `GET /ready`
 
-Disco efímero: con `CUSTODY_MASTER_SECRET` fijo se rederiva la cuenta SEP-30. Las wallets Privy se crean en `/web-setup` y se guardan como `privyUserId` + `privyWalletId` en `senda-db.json`.
+Disco efímero: con `CUSTODY_MASTER_SECRET` fijo se rederiva la cuenta SEP-30. Las wallets Privy se crean en `/web-setup` y se guardan como `privyUserId` + `privyWalletId` en `senda-db.json`. El yield se rearma desde Horizon si ese JSON se pierde.
 
 ## Seguridad
 

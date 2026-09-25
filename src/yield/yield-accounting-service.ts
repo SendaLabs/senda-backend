@@ -108,6 +108,8 @@ export async function getUserYieldView(phone: string): Promise<{
   accruedYieldUsdc: string;
   currentValueUsdc: string;
 }> {
+  const { healYieldPositionFromChain } = await import("./yield-ledger");
+  await healYieldPositionFromChain(phone);
   const stored = await findYieldPosition(phone);
   if (!stored) {
     return { sharesUsdc: "0", accruedYieldUsdc: "0", currentValueUsdc: "0" };
