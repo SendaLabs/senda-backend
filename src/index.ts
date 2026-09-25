@@ -15,6 +15,8 @@ import {
 import { assertRuntimeSecrets } from "./services/custody-secrets.service";
 import { reconcileOfframpOrders } from "./services/offramp.service";
 import { resumePendingSep24Withdrawals } from "./services/sep24-withdraw.service";
+import { startHorizonListener } from "./stellar/horizon-listener";
+import { ensureTreasuryUsdcTrustline } from "./stellar/treasury";
 import { assertNetworkConsistency } from "./services/stellar.service";
 import {
   logSafeError,
@@ -56,6 +58,30 @@ app.get("/health", (_req: Request, res: Response) => {
     service: "senda-backend",
     network: process.env.STELLAR_NETWORK ?? "testnet",
   });
+});
+
+app.get("/ready", (_req: Request, res: Response) => {
+  const checks = {
+    whatsappToken: Boolean(process.env.WHATSAPP_TOKEN?.trim()),
+    whatsappPhone: Boolean(process.env.WHATSAPP_PHONE_NUMBER_ID?.trim()),
+    appSecret: Boolean(process.env.WHATSAPP_APP_SECRET?.trim()),
+    stellarSecret: Boolean(process.env.STELLAR_SECRET_KEY?.trim()),
+    custodyMaster: Boolean(process.env.CUSTODY_MASTER_SECRET?.trim()),
+    fileVault: Boolean(process.env.FILE_VAULT_SECRET?.trim()),
+    offrampVault: Boolean(process.env.STELLAR_OFFRAMP_PUBLIC_KEY?.trim()),
+    network: process.env.STELLAR_NETWORK ?? "testnet",
+    welcomeVideo:
+      process.env.WELCOME_SKIP_VIDEO?.trim() === "true" ? "skipped" : "enabled",
+  };
+  const ok =
+    checks.whatsappToken &&
+    checks.whatsappPhone &&
+    checks.appSecret &&
+    checks.stellarSecret &&
+    checks.custodyMaster &&
+    checks.fileVault &&
+    checks.offrampVault;
+  res.status(ok ? 200 : 503).json({ status: ok ? "ready" : "missing_env", checks });
 });
 
 app.get("/webhook", (req: Request, res: Response) => {
@@ -312,4 +338,13 @@ app.listen(port, () => {
     );
   });
   void resumePendingSep24Withdrawals();
+  void ensureTreasuryUsdcTrustline()
+    .then(() => startHorizonListener())
+    .catch((error) => {
+      console.error(
+        error instanceof Error
+          ? error.message
+          : "No se pudo arrancar el listener de tesorería"
+      );
+    });
 });
