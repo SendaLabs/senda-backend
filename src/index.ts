@@ -17,6 +17,11 @@ import { reconcileOfframpOrders } from "./services/offramp.service";
 import { resumePendingSep24Withdrawals } from "./services/sep24-withdraw.service";
 import { startHorizonListener } from "./stellar/horizon-listener";
 import { ensureTreasuryUsdcTrustline } from "./stellar/treasury";
+import { refreshUtilizationGuard } from "./yield/utilization-guard";
+import {
+  safeReconcileYieldDaily,
+  safeSyncYieldAccounting,
+} from "./yield/yield-accounting-service";
 import { assertNetworkConsistency } from "./services/stellar.service";
 import {
   logSafeError,
@@ -347,4 +352,9 @@ app.listen(port, () => {
           : "No se pudo arrancar el listener de tesorería"
       );
     });
+  void refreshUtilizationGuard();
+  void safeSyncYieldAccounting();
+  setInterval(() => void refreshUtilizationGuard(), 15 * 60 * 1000);
+  setInterval(() => void safeSyncYieldAccounting(), 60 * 60 * 1000);
+  setInterval(() => void safeReconcileYieldDaily(), 24 * 60 * 60 * 1000);
 });

@@ -19,3 +19,13 @@ export function toSep30Identity(phone: string): Sep30Identity {
 export function identityKey(phone: string): string {
   return `phone_number:${normalizePhoneIdentity(phone)}`;
 }
+
+export type KycTier = "unverified" | "basic";
+
+export function getKycTier(_phone: string): KycTier {
+  return "basic";
+}
+
+export function canUseSavings(phone: string): boolean {
+  return getKycTier(phone) !== "unverified";
+}

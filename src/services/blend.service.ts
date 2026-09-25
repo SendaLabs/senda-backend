@@ -150,7 +150,9 @@ async function submitBlendRequest(
   return sent.hash;
 }
 
-async function readOnChainCollateralStroops(publicKey: string): Promise<bigint> {
+export async function readBlendCollateralStroops(
+  publicKey: string
+): Promise<bigint> {
   const server = rpcServer();
   const { networkPassphrase } = getNetworkConfig();
   const account = await server.getAccount(publicKey);
@@ -182,7 +184,7 @@ async function readOnChainCollateralStroops(publicKey: string): Promise<bigint> 
 }
 
 async function syncYieldFromChain(phone: string, publicKey: string) {
-  const stroops = await readOnChainCollateralStroops(publicKey);
+  const stroops = await readBlendCollateralStroops(publicKey);
   const value = fromUsdcStroops(stroops);
   await upsertYieldPosition(phone, stroops.toString(), value);
   return { suppliedUsdc: value, currentValueUsdc: value };
@@ -191,16 +193,25 @@ async function syncYieldFromChain(phone: string, publicKey: string) {
 export async function supplyToBlend(
   phone: string,
   amount: number
-): Promise<{ amountUsdc: string; valueUsdc: string }> {
-  await submitBlendRequest(phone, amount, RequestType.SupplyCollateral);
+): Promise<{ amountUsdc: string; valueUsdc: string; txHash: string }> {
+  const txHash = await submitBlendRequest(
+    phone,
+    amount,
+    RequestType.SupplyCollateral
+  );
   const user = await getOrCreateUserAccount(phone);
   try {
     const position = await syncYieldFromChain(phone, user.publicKey);
-    return { amountUsdc: fromUsdcStroops(toUsdcStroops(amount)), valueUsdc: position.currentValueUsdc };
+    return {
+      amountUsdc: fromUsdcStroops(toUsdcStroops(amount)),
+      valueUsdc: position.currentValueUsdc,
+      txHash,
+    };
   } catch {
     return {
       amountUsdc: fromUsdcStroops(toUsdcStroops(amount)),
       valueUsdc: fromUsdcStroops(toUsdcStroops(amount)),
+      txHash,
     };
   }
 }
@@ -208,14 +219,26 @@ export async function supplyToBlend(
 export async function withdrawFromBlend(
   phone: string,
   amount: number
-): Promise<{ amountUsdc: string; valueUsdc: string }> {
-  await submitBlendRequest(phone, amount, RequestType.WithdrawCollateral);
+): Promise<{ amountUsdc: string; valueUsdc: string; txHash: string }> {
+  const txHash = await submitBlendRequest(
+    phone,
+    amount,
+    RequestType.WithdrawCollateral
+  );
   const user = await getOrCreateUserAccount(phone);
   try {
     const position = await syncYieldFromChain(phone, user.publicKey);
-    return { amountUsdc: fromUsdcStroops(toUsdcStroops(amount)), valueUsdc: position.currentValueUsdc };
+    return {
+      amountUsdc: fromUsdcStroops(toUsdcStroops(amount)),
+      valueUsdc: position.currentValueUsdc,
+      txHash,
+    };
   } catch {
-    return { amountUsdc: fromUsdcStroops(toUsdcStroops(amount)), valueUsdc: "0" };
+    return {
+      amountUsdc: fromUsdcStroops(toUsdcStroops(amount)),
+      valueUsdc: "0",
+      txHash,
+    };
   }
 }
 

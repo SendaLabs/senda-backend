@@ -26,7 +26,9 @@ export interface StoredTransaction {
 
 export interface StoredYieldPosition {
   phone: string;
+  sharesStroops: string;
   bUsdcBalance: string;
+  accruedYieldUsdc: string;
   lastSyncedValueUsdc: string;
   updatedAt: string;
 }
@@ -170,23 +172,41 @@ export async function findSep24Transaction(
 export async function upsertYieldPosition(
   phone: string,
   bUsdcBalance: string,
-  lastSyncedValueUsdc: string
+  lastSyncedValueUsdc: string,
+  extras?: { sharesStroops?: string; accruedYieldUsdc?: string }
 ): Promise<void> {
   const next: StoredYieldPosition = {
     phone,
+    sharesStroops: extras?.sharesStroops ?? bUsdcBalance,
     bUsdcBalance,
+    accruedYieldUsdc: extras?.accruedYieldUsdc ?? "0",
     lastSyncedValueUsdc,
     updatedAt: new Date().toISOString(),
   };
   await mutateJsonFile<DbFile>(dbPath(), emptyDb(), (db) => {
     const index = db.yieldPositions.findIndex((item) => item.phone === phone);
     if (index >= 0) {
-      db.yieldPositions[index] = next;
+      db.yieldPositions[index] = {
+        ...db.yieldPositions[index],
+        ...next,
+      };
     } else {
       db.yieldPositions.push(next);
     }
     return db;
   });
+}
+
+export async function listYieldPositions(): Promise<StoredYieldPosition[]> {
+  return readDb().yieldPositions;
+}
+
+export function positionSharesStroops(row: StoredYieldPosition): bigint {
+  const raw = row.sharesStroops || row.bUsdcBalance || "0";
+  if (!/^-?\d+$/.test(raw)) {
+    return 0n;
+  }
+  return BigInt(raw);
 }
 
 export async function listPendingSep24(): Promise<StoredTransaction[]> {

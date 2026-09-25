@@ -1,0 +1,170 @@
+import {
+  findYieldPosition,
+  positionSharesStroops,
+  upsertYieldPosition,
+} from "../db/users.repository";
+import { canUseSavings } from "../services/identity.service";
+import { buildSubmitOperation } from "../services/blend.service";
+import { getOrCreateUserAccount } from "../services/stellar.service";
+import {
+  fromUsdcStroops,
+  getUsdcBalance,
+  toUsdcStroops,
+  transferUsdcFromWallet,
+} from "../services/usdc.service";
+import { startMercadoPagoWithdraw } from "../services/sep24-withdraw.service";
+import { waitForTreasuryCredit } from "../stellar/horizon-listener";
+import {
+  ensureTreasuryUsdcTrustline,
+  getTreasuryWallet,
+} from "../stellar/treasury";
+import { treasurySimulateThenSubmit } from "../stellar/simulate-submit";
+import { logSafeError } from "../services/whatsapp.service";
+import { areYieldDepositsBlocked } from "./utilization-guard";
+import { getUserYieldView, syncYieldAccounting } from "./yield-accounting-service";
+
+const RequestType = {
+  SupplyCollateral: 2,
+  WithdrawCollateral: 3,
+};
+
+export class YieldDepositsBlockedError extends Error {
+  constructor() {
+    super(
+      "Por ahora no estamos tomando más plata para rendir: el pool está muy usado. Probá más tarde."
+    );
+    this.name = "YieldDepositsBlockedError";
+  }
+}
+
+async function availableStroops(phone: string): Promise<bigint> {
+  await syncYieldAccounting().catch((error) =>
+    logSafeError("Yield sync al leer posición", error)
+  );
+  const view = await getUserYieldView(phone);
+  return toUsdcStroops(view.currentValueUsdc, { allowZero: true });
+}
+
+export async function deposit(
+  userId: string,
+  amount: number
+): Promise<{ amountUsdc: string; valueUsdc: string; txHash: string }> {
+  if (!canUseSavings(userId)) {
+    throw new Error("Todavía no podemos poner tu plata a rendir.");
+  }
+  if (areYieldDepositsBlocked()) {
+    throw new YieldDepositsBlockedError();
+  }
+
+  const user = await getOrCreateUserAccount(userId);
+  const stroops = toUsdcStroops(amount);
+  const walletBalance = await getUsdcBalance(user.publicKey);
+  if (walletBalance < stroops) {
+    throw new Error("No te alcanza el saldo para poner esa plata a rendir");
+  }
+
+  const treasury = await ensureTreasuryUsdcTrustline();
+  const transfer = await transferUsdcFromWallet(user, treasury, amount);
+  const credit = await waitForTreasuryCredit({
+    from: user.publicKey,
+    amountStroops: stroops,
+    timeoutMs: 90_000,
+  });
+
+  let blendHash = credit.hash;
+  try {
+    blendHash = await treasurySimulateThenSubmit(
+      buildSubmitOperation(treasury, stroops, RequestType.SupplyCollateral)
+    );
+  } catch (error) {
+    logSafeError("Blend deposit_collateral, USDC quedó en tesorería", error);
+  }
+
+  const previous = await findYieldPosition(userId);
+  const nextShares = positionSharesStroops(
+    previous ?? {
+      phone: userId,
+      sharesStroops: "0",
+      bUsdcBalance: "0",
+      accruedYieldUsdc: "0",
+      lastSyncedValueUsdc: "0",
+      updatedAt: "",
+    }
+  ) + stroops;
+  await upsertYieldPosition(userId, nextShares.toString(), fromUsdcStroops(nextShares), {
+    sharesStroops: nextShares.toString(),
+    accruedYieldUsdc: previous?.accruedYieldUsdc ?? "0",
+  });
+
+  return {
+    amountUsdc: transfer.amountUsdc,
+    valueUsdc: fromUsdcStroops(nextShares),
+    txHash: blendHash,
+  };
+}
+
+export async function withdraw(
+  userId: string,
+  amount: number,
+  options?: { offrampToMercadoPago?: boolean }
+): Promise<{ amountUsdc: string; valueUsdc: string; txHash: string }> {
+  const stroops = toUsdcStroops(amount);
+  const available = await availableStroops(userId);
+  if (available < stroops) {
+    throw new Error("No tenés esa cantidad rindiendo");
+  }
+
+  const treasury = await ensureTreasuryUsdcTrustline();
+  let blendHash = "";
+  try {
+    blendHash = await treasurySimulateThenSubmit(
+      buildSubmitOperation(treasury, stroops, RequestType.WithdrawCollateral)
+    );
+  } catch (error) {
+    logSafeError("Blend withdraw, intento acreditar igual desde tesorería", error);
+  }
+
+  const user = await getOrCreateUserAccount(userId);
+  const payout = await transferUsdcFromWallet(
+    getTreasuryWallet(),
+    user.publicKey,
+    amount
+  );
+
+  const previous = await findYieldPosition(userId);
+  const currentShares = positionSharesStroops(
+    previous ?? {
+      phone: userId,
+      sharesStroops: "0",
+      bUsdcBalance: "0",
+      accruedYieldUsdc: "0",
+      lastSyncedValueUsdc: "0",
+      updatedAt: "",
+    }
+  );
+  const nextShares = currentShares > stroops ? currentShares - stroops : 0n;
+  await upsertYieldPosition(userId, nextShares.toString(), fromUsdcStroops(nextShares), {
+    sharesStroops: nextShares.toString(),
+  });
+
+  if (options?.offrampToMercadoPago) {
+    await startMercadoPagoWithdraw(userId, amount);
+  }
+
+  return {
+    amountUsdc: payout.amountUsdc,
+    valueUsdc: fromUsdcStroops(nextShares),
+    txHash: blendHash || payout.txHash,
+  };
+}
+
+export async function getPosition(phone: string): Promise<{
+  suppliedUsdc: string;
+  currentValueUsdc: string;
+}> {
+  const view = await getUserYieldView(phone);
+  return {
+    suppliedUsdc: view.sharesUsdc,
+    currentValueUsdc: view.currentValueUsdc,
+  };
+}

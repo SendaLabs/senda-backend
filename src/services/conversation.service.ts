@@ -16,7 +16,11 @@ import {
   finishCreditClaim,
   withPhoneLock,
 } from "./operation-guard.service";
-import { creditUserOnTestnet, getUserOnChainState } from "./stellar.service";
+import {
+  creditUserOnTestnet,
+  explorerTxUrl,
+  getUserOnChainState,
+} from "./stellar.service";
 import {
   createCashWithdrawal,
   extractPartner,
@@ -28,10 +32,11 @@ import {
 } from "./offramp.service";
 import { startMercadoPagoWithdraw } from "./sep24-withdraw.service";
 import {
-  getBlendPosition,
-  supplyToBlend,
-  withdrawFromBlend,
-} from "./blend.service";
+  deposit as supplyToBlend,
+  getPosition as getBlendPosition,
+  withdraw as withdrawFromBlend,
+  YieldDepositsBlockedError,
+} from "../yield/savings-service";
 import {
   logSafeError,
   sendWhatsAppMessage,
@@ -97,13 +102,13 @@ async function sendMenu(to: string, name: string): Promise<void> {
 }
 
 export async function sendWelcomeFlow(to: string, name: string): Promise<void> {
+  await sendMenu(to, name);
+
   try {
     await sendWhatsAppVideo(to, getWelcomeVideoUrl(), WELCOME_VIDEO_CAPTION);
   } catch (error) {
     logSafeError("Webhook: no se pudo enviar el video de bienvenida", error);
   }
-
-  await sendMenu(to, name);
 }
 
 async function startSendFlow(to: string, name: string): Promise<void> {
@@ -180,6 +185,7 @@ async function executeUsdcTransfer(
             amountUsdc: String(usdAmount),
             usdcBalance: await getSpendableUsdc(to),
             duplicate: true,
+            txHash: claim.txHash,
           };
         }
       }
@@ -192,18 +198,24 @@ async function executeUsdcTransfer(
         amountUsdc: credited.amountUsdc,
         usdcBalance: credited.usdcBalance,
         duplicate: false,
+        txHash: credited.usdcTxHash,
       };
     });
     setSession(to, idleSession(name));
 
+    const proof =
+      result.txHash && !result.duplicate ? explorerTxUrl(result.txHash) : "";
     const receipt = result.duplicate
       ? "Ese envío ya lo habíamos acreditado. Pedime el saldo si querés confirmarlo."
       : [
           `Listo 💸 Ya acreditamos ${result.amountUsdc} USDC en tu cuenta.`,
           `Ahora tenés ${result.usdcBalance} USDC.`,
+          proof ? `Comprobante: ${proof}` : "",
           "",
           "Si querés, pedime el saldo, mandá otro monto, retiralo en efectivo o pasalo a Mercado Pago.",
-        ].join("\n");
+        ]
+          .filter((line, index, lines) => line !== "" || lines[index + 1] !== "")
+          .join("\n");
     try {
       await sendWhatsAppMessage(to, receipt);
       await clearPendingAck(to);
@@ -258,9 +270,12 @@ async function executeCashWithdrawal(
         `Código: ${order.pickupCode}`,
         order.locationHint,
         "Llevá tu documento. El código vale 48 horas.",
+        order.txHash ? `Comprobante: ${explorerTxUrl(order.txHash)}` : "",
         "",
         `Tu saldo ahora es ${remaining} USDC.`,
-      ].join("\n")
+      ]
+        .filter((line, index, lines) => line !== "" || lines[index + 1] !== "")
+        .join("\n")
     );
   } catch (error) {
     logSafeError("Error en retiro en efectivo", error);
@@ -416,11 +431,18 @@ async function startYieldSupplyFlow(
       [
         `Listo 📈 Ya dejamos ${formatUsdcLabel(amount)} dólares rindiendo.`,
         `Ahí tenés aproximadamente ${result.valueUsdc} dólares.`,
-      ].join("\n")
+        result.txHash ? `Comprobante: ${explorerTxUrl(result.txHash)}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n")
     );
   } catch (error) {
     logSafeError("Error al poner a rendir", error);
     setSession(to, idleSession(name));
+    if (error instanceof YieldDepositsBlockedError) {
+      await sendWhatsAppMessage(to, error.message);
+      return;
+    }
     await sendWhatsAppMessage(to, humanizeLedgerError(error));
   }
 }
@@ -452,7 +474,10 @@ async function startYieldWithdrawFlow(
       [
         `Listo. Ya volvieron ${formatUsdcLabel(amount)} dólares a tu saldo.`,
         `Te quedan aproximadamente ${result.valueUsdc} dólares rindiendo.`,
-      ].join("\n")
+        result.txHash ? `Comprobante: ${explorerTxUrl(result.txHash)}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n")
     );
   } catch (error) {
     logSafeError("Error al sacar de rendir", error);
@@ -514,6 +539,22 @@ async function dispatchIntent(
     case "option":
       if (intent.option === "2") {
         await handleBalanceQuery(to, name);
+        return;
+      }
+      if (intent.option === "3") {
+        await startWithdrawFlow(to, name, null, null);
+        return;
+      }
+      if (intent.option === "4") {
+        await startMercadoPagoFlow(to, name, null);
+        return;
+      }
+      if (intent.option === "5") {
+        await startYieldSupplyFlow(to, name, null);
+        return;
+      }
+      if (intent.option === "6") {
+        await handleYieldPosition(to, name);
         return;
       }
       await startSendFlow(to, name);
@@ -579,50 +620,36 @@ async function handleIncomingWhatsAppMessageInner(
   }
 
   if (
+    intent.type === "option" &&
+    session.step === ConversationStep.AWAITING_MENU_OPTION
+  ) {
+    await dispatchIntent(from, session.name, text);
+    return;
+  }
+
+  if (
     intent.type === "balance" ||
     intent.type === "menu" ||
+    intent.type === "withdraw" ||
     intent.type === "withdraw_status" ||
     intent.type === "withdraw_mp" ||
     intent.type === "yield_supply" ||
     intent.type === "yield_position" ||
-    intent.type === "yield_withdraw"
+    intent.type === "yield_withdraw" ||
+    (intent.type === "send" && intent.amount !== null && hasSendVerb(text))
   ) {
     await dispatchIntent(from, session.name, text);
     return;
   }
 
   if (session.step === ConversationStep.AWAITING_USD_AMOUNT) {
-    if (intent.type === "withdraw") {
-      await startWithdrawFlow(
-        from,
-        session.name,
-        intent.amount,
-        intent.partner
-      );
-      return;
-    }
-
-    if (intent.type === "send" && intent.amount !== null) {
-      await executeUsdcTransfer(from, session.name, intent.amount);
-      return;
-    }
-
     await handleUsdAmount(from, session.name, text);
     return;
   }
 
   if (session.step === ConversationStep.AWAITING_WITHDRAW_AMOUNT) {
-    if (intent.type === "send" && intent.amount !== null && hasSendVerb(text)) {
-      await executeUsdcTransfer(from, session.name, intent.amount);
-      return;
-    }
-
-    const amount = intent.type === "withdraw" ? intent.amount : extractUsdAmount(text);
-    const partner =
-      (intent.type === "withdraw" ? intent.partner : null) ??
-      extractPartner(text) ??
-      session.pendingPartner ??
-      null;
+    const amount = extractUsdAmount(text);
+    const partner = extractPartner(text) ?? session.pendingPartner ?? null;
 
     if (amount === null) {
       await sendWhatsAppMessage(
@@ -637,18 +664,8 @@ async function handleIncomingWhatsAppMessageInner(
   }
 
   if (session.step === ConversationStep.AWAITING_WITHDRAW_PARTNER) {
-    if (intent.type === "send" && intent.amount !== null && hasSendVerb(text)) {
-      await executeUsdcTransfer(from, session.name, intent.amount);
-      return;
-    }
-
-    const amount =
-      (intent.type === "withdraw" ? intent.amount : null) ??
-      session.pendingAmount ??
-      extractUsdAmount(text);
-    const partner =
-      (intent.type === "withdraw" ? intent.partner : null) ??
-      extractPartner(text);
+    const amount = session.pendingAmount ?? extractUsdAmount(text);
+    const partner = extractPartner(text);
 
     if (!partner) {
       await sendWhatsAppMessage(from, partnerPrompt());
