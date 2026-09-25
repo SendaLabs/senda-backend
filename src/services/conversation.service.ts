@@ -1,3 +1,4 @@
+import { maybeInviteWalletSetup } from "../wallet/wallet-setup";
 import {
   ConversationStep,
   getSession,
@@ -717,6 +718,12 @@ async function handleIncomingWhatsAppMessageInner(
   name: string,
   text: string
 ): Promise<void> {
+  const setupInvite = await maybeInviteWalletSetup(from, name);
+  if (setupInvite) {
+    await sendWhatsAppMessage(from, setupInvite);
+    return;
+  }
+
   if (isReceiptQuery(text)) {
     const ack = getPendingAck(from);
     if (ack) {

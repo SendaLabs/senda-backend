@@ -1,28 +1,37 @@
-import { findUserByPhone, upsertPrivyUser } from "../db/users.repository";
+import { findUserByPhone } from "../db/users.repository";
 import { saveWallet } from "../services/wallet.store";
 import type { CustodialAccount } from "../services/account.types";
-import { createStellarWallet } from "./privy-client";
+
+export class WalletSetupRequiredError extends Error {
+  constructor() {
+    super(
+      "Todavía no abriste tu cuenta. Completá el alta de una sola vez y después escribime de nuevo."
+    );
+    this.name = "WalletSetupRequiredError";
+  }
+}
+
+export function isLinkedPrivyUser(user: {
+  privyWalletId?: string | null;
+  stellarPublicKey?: string | null;
+} | null): boolean {
+  return Boolean(user?.privyWalletId && user.stellarPublicKey);
+}
 
 export async function resolvePrivyAccount(
   phone: string
 ): Promise<CustodialAccount> {
   const existing = await findUserByPhone(phone);
-  if (existing?.stellarPublicKey && existing.privyWalletId) {
-    const account: CustodialAccount = {
-      publicKey: existing.stellarPublicKey,
-      secretKey: "",
-      privyWalletId: existing.privyWalletId,
-    };
-    await saveWallet(phone, account, { persistSecret: false });
-    return account;
+  if (!isLinkedPrivyUser(existing) || !existing) {
+    throw new WalletSetupRequiredError();
   }
 
-  const wallet = await createStellarWallet(`whatsapp:${phone}`);
-  await upsertPrivyUser(phone, wallet.walletId, wallet.address);
   const account: CustodialAccount = {
-    publicKey: wallet.address,
+    publicKey: existing.stellarPublicKey,
     secretKey: "",
-    privyWalletId: wallet.walletId,
+    privyWalletId: existing.privyWalletId ?? undefined,
+    privyUserId: existing.privyUserId ?? undefined,
+    phone,
   };
   await saveWallet(phone, account, { persistSecret: false });
   return account;

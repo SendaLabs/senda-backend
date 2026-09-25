@@ -8,7 +8,7 @@ Hecho para el **Argentina Builder Challenge (BAF × Stellar), categoría genesis
 
 Sobre lo que ya existía (saludo, saldo, envío P2P, retiro a efectivo `SENDA-xxx`):
 
-1. **Wallets MPC vía Privy.** Si hay `PRIVY_APP_ID` + `PRIVY_APP_SECRET`, cada usuario tiene una wallet Stellar propia. Se firma el hash EdDSA (`raw_sign`) y se adjunta a la transacción. SEP-30 queda de fallback.
+1. **Wallets MPC vía Privy, self-custodial.** El usuario nuevo recibe un link de un solo uso y abre su wallet **una vez** en `/web-setup` (login SMS con el mismo WhatsApp). Ahí crea la wallet Stellar y delega el session signer de Senda con tope de 500 USDC por envío y 2000 por día. El backend **no** crea la wallet. SEP-30 queda si `USE_PRIVY_WALLETS=false`.
 2. **Tesorería + Horizon Listener.** Cuenta pooled de Senda, trustline USDC, SSE de pagos con reconexión y backoff. Un depósito **no** se confirma hasta el evento de Horizon.
 3. **Retiro a Mercado Pago (nuestro “Bridge”).** Provider Router con un adapter SEP-24 (`testanchor.stellar.org` en dev). Completo solo si confirman **el ancla y Horizon**. WhatsApp avisa cada estado.
 4. **Ahorro pooled vía Blend v2.** Una tesorería deposita en Blend. El share de cada usuario vive en `YieldPosition` (off-chain). Cron horario + reconciliación diaria. Si el pool está muy usado, se bloquean depósitos.
@@ -20,7 +20,7 @@ Foto previa de este trabajo: [`AUDIT.md`](./AUDIT.md).
 
 | Producto | Modelo |
 |---|---|
-| Saldo diario (enviar, recibir, efectivo, MP, cobros) | Wallet **segregada por usuario** (Privy MPC si hay credenciales; si no, derivación SEP-30) |
+| Saldo diario (enviar, recibir, efectivo, MP, cobros) | Wallet Privy del usuario + session signer de Senda (policy de gasto). Fallback SEP-30 si Privy está apagado |
 | Rendimiento Blend | **Pooled**: una posición on-chain de Senda. El share se trackea off-chain y se reconcilia |
 
 ## Cómo hablarle al bot
@@ -42,7 +42,8 @@ También: `generame un link de cobro`. Si te pegan un `web+stellar:pay?...`, Sen
 WhatsApp Bot Service (conversation + NLU + sesiones en data/sessions.json)
   → FiatRamp / Offramp (efectivo simulado + SEP-24)
   → Provider Router (hoy: Sep24AnchorAdapter)
-  → Wallet Manager (Privy MPC o SEP-30)
+  → Wallet Manager (Privy self-custodial + session signer, o SEP-30)
+  → web-setup (Next.js, alta de una sola vez)
   → Stellar Wallet Service / tesorería + Horizon Listener
   → Savings Service → Yield Accounting (cron) → Blend v2
   → QR Payments (SEP-7)
@@ -55,6 +56,7 @@ No hay BullMQ ni PostgreSQL en runtime. No los fingimos.
 
 - Node.js 22.12+ / TypeScript / Express
 - WhatsApp Cloud API (Graph v22)
+- Mini sitio `/web-setup` (Next.js + `@privy-io/react-auth`)
 - `@stellar/stellar-sdk`, `@privy-io/node`, `@blend-capital/blend-sdk`, `qrcode`
 - Contrato Soroban de laboratorio en `contracts/` — **no** entra al flujo del bot
 
@@ -68,6 +70,17 @@ npm run dev
 ```
 
 Webhook: `GET/POST /webhook`. Health: `/health`. Listo para demo: `/ready`.
+
+Alta web (otro proceso):
+
+```bash
+cd web-setup
+cp .env.example .env.local
+npm install
+npm run dev
+```
+
+El primer mensaje de un número no registrado manda un link corto `/s/:token` → `/setup?token=`. Después de login SMS + wallet + `addSigners`, el sitio hace `POST /api/link-wallet` y muestra «Listo, volvé a WhatsApp».
 
 ## Blockers (alcance honesto)
 
@@ -86,7 +99,11 @@ No hay tareas “a medias” en el código. Lo que no llega a producción está 
 
 | Variable | Uso |
 |---|---|
-| `PRIVY_APP_ID` / `PRIVY_APP_SECRET` | Activan wallets MPC (salvo `USE_PRIVY_WALLETS=false`) |
+| `PRIVY_APP_ID` / `PRIVY_APP_SECRET` | Activan el flujo Privy (salvo `USE_PRIVY_WALLETS=false`) |
+| `PRIVY_SESSION_SIGNER_ID` / `PRIVY_SESSION_SIGNER_PRIVATE_KEY` | Session signer delegado en `/setup` |
+| `PRIVY_SPEND_POLICY_ID` | Policy del dashboard (500 USDC/tx, 2000/día) |
+| `WEB_SETUP_PUBLIC_URL` / `WEB_SETUP_ORIGIN` | Mini sitio de alta + CORS |
+| `WHATSAPP_CLICK_TO_CHAT` | Número para el `wa.me` de regreso |
 | `STELLAR_TREASURY_SECRET_KEY` | Tesorería pooled. Si falta, usa `STELLAR_SECRET_KEY` |
 | `SEP24_HOME_DOMAIN` | Ancla SEP-24 (default `testanchor.stellar.org`) |
 | `BLEND_POOL_ID` | Pool Blend Testnet |
@@ -122,7 +139,7 @@ Laboratorio (`ping`, `credit`, `balance`). El saldo que ve el usuario es el **SA
 3. Webhook Meta: `https://<servicio>/webhook`
 4. Chequear `GET /ready`
 
-Disco efímero: con `CUSTODY_MASTER_SECRET` fijo se rederiva la cuenta SEP-30. Las wallets Privy viven en Privy + `privyWalletId` en `senda-db.json`; sin persistir ese JSON se crea otra wallet.
+Disco efímero: con `CUSTODY_MASTER_SECRET` fijo se rederiva la cuenta SEP-30. Las wallets Privy se crean en `/web-setup` y se guardan como `privyUserId` + `privyWalletId` en `senda-db.json`.
 
 ## Seguridad
 

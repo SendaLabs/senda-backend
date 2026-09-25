@@ -35,6 +35,17 @@ export function humanizeLedgerError(error: unknown): string {
     return "Por hoy llegaste al tope de envíos. Probá más tarde.";
   }
 
+  if (error instanceof Error && error.name === "WalletSetupRequiredError") {
+    return error.message;
+  }
+
+  if (
+    error instanceof Error &&
+    /PRIVY_SESSION_SIGNER_PRIVATE_KEY|delegado el signer/i.test(error.message)
+  ) {
+    return "Tu cuenta todavía no delegó el permiso de Senda. Completá el alta y escribime de nuevo.";
+  }
+
   if (error instanceof Error && error.name === "CreditInFlightError") {
     return "Ese envío ya se está procesando. Dame un toque y pedime el saldo.";
   }
@@ -90,7 +101,7 @@ export function replyUserError(error: unknown): string {
   const raw = errorText(error).toLowerCase();
   const isLedger =
     (error instanceof Error &&
-      /Usdc|Sac|Amount|Credit|Offramp|Blend/.test(error.name)) ||
+      /Usdc|Sac|Amount|Credit|Offramp|Blend|WalletSetup/.test(error.name)) ||
     /stellar|soroban|horizon|hosterror|wasm|underfund|tx_insufficient|op_|blend|usdc|ledger/.test(
       raw
     );

@@ -16,6 +16,7 @@ import { assertRuntimeSecrets } from "./services/custody-secrets.service";
 import { reconcileOfframpOrders } from "./services/offramp.service";
 import { resumePendingSep24Withdrawals } from "./services/sep24-withdraw.service";
 import { hasPrivyCredentials } from "./config/flags";
+import { mountSetupRoutes } from "./wallet/setup.routes";
 import { startHorizonListener } from "./stellar/horizon-listener";
 import { ensureTreasuryUsdcTrustline } from "./stellar/treasury";
 import { refreshUtilizationGuard } from "./yield/utilization-guard";
@@ -58,6 +59,8 @@ app.get("/media/welcome.mp4", (_req: Request, res: Response) => {
   });
 });
 
+mountSetupRoutes(app);
+
 app.get("/health", (_req: Request, res: Response) => {
   res.json({
     status: "ok",
@@ -76,6 +79,8 @@ app.get("/ready", (_req: Request, res: Response) => {
     fileVault: Boolean(process.env.FILE_VAULT_SECRET?.trim()),
     offrampVault: Boolean(process.env.STELLAR_OFFRAMP_PUBLIC_KEY?.trim()),
     privy: hasPrivyCredentials(),
+    sessionSigner: Boolean(process.env.PRIVY_SESSION_SIGNER_PRIVATE_KEY?.trim()),
+    webSetup: Boolean(process.env.WEB_SETUP_PUBLIC_URL?.trim()),
     treasury:
       Boolean(process.env.STELLAR_TREASURY_SECRET_KEY?.trim()) ||
       Boolean(process.env.STELLAR_SECRET_KEY?.trim()),

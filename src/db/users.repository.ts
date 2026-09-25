@@ -4,6 +4,7 @@ import { mutateJsonFile, readJsonFile } from "../services/json-store";
 
 export interface StoredUser {
   phone: string;
+  privyUserId?: string | null;
   privyWalletId: string | null;
   stellarPublicKey: string;
 }
@@ -60,9 +61,15 @@ export async function findUserByPhone(
 export async function upsertPrivyUser(
   phone: string,
   privyWalletId: string,
-  stellarPublicKey: string
+  stellarPublicKey: string,
+  privyUserId?: string
 ): Promise<StoredUser> {
-  const next: StoredUser = { phone, privyWalletId, stellarPublicKey };
+  const next: StoredUser = {
+    phone,
+    privyWalletId,
+    stellarPublicKey,
+    privyUserId: privyUserId ?? null,
+  };
   await mutateJsonFile<DbFile>(dbPath(), emptyDb(), (db) => {
     const index = db.users.findIndex((user) => user.phone === phone);
     if (index >= 0) {

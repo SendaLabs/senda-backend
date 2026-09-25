@@ -1,0 +1,272 @@
+"use client";
+
+import { usePrivy, useSigners } from "@privy-io/react-auth";
+import { useCreateWallet } from "@privy-io/react-auth/extended-chains";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import {
+  getSendaApiUrl,
+  getSessionSignerId,
+  getSpendPolicyId,
+  getWhatsAppReturnUrl,
+} from "../../lib/env";
+import {
+  SENDA_MAX_USDC_PER_DAY,
+  SENDA_MAX_USDC_PER_TRANSACTION,
+} from "../../lib/spend-policy";
+
+type SetupInfo = {
+  valid: boolean;
+  phoneHint?: string;
+  phoneE164?: string;
+};
+
+type Screen = "loading" | "invalid" | "login" | "working" | "done" | "error";
+
+function normalizePhone(value: string): string {
+  return value.replace(/\D/g, "");
+}
+
+function linkedPhoneOf(user: {
+  phone?: { number?: string } | null;
+  linkedAccounts?: Array<{ type?: string; number?: string; phoneNumber?: string }>;
+}): string {
+  const direct = user.phone?.number || "";
+  if (direct) {
+    return normalizePhone(direct);
+  }
+  const account = user.linkedAccounts?.find((item) => item.type === "phone");
+  return normalizePhone(account?.number || account?.phoneNumber || "");
+}
+
+function stellarWalletOf(user: {
+  linkedAccounts?: Array<{
+    type?: string;
+    chainType?: string;
+    address?: string;
+    id?: string | null;
+  }>;
+}): { address: string; id: string } | null {
+  const wallet = user.linkedAccounts?.find(
+    (item) =>
+      item.type === "wallet" &&
+      item.chainType === "stellar" &&
+      item.address &&
+      item.id
+  );
+  if (!wallet?.address || !wallet.id) {
+    return null;
+  }
+  return { address: wallet.address, id: wallet.id };
+}
+
+function SetupInner() {
+  const search = useSearchParams();
+  const token = search.get("token")?.trim() || "";
+  const { ready, authenticated, user, login, logout } = usePrivy();
+  const { createWallet } = useCreateWallet();
+  const { addSigners } = useSigners();
+
+  const [info, setInfo] = useState<SetupInfo | null>(null);
+  const [screen, setScreen] = useState<Screen>("loading");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const api = useMemo(() => getSendaApiUrl(), []);
+  const wa = useMemo(() => getWhatsAppReturnUrl(), []);
+
+  useEffect(() => {
+    if (!token) {
+      setScreen("invalid");
+      return;
+    }
+
+    let cancelled = false;
+    fetch(`${api}/api/setup/${token}`)
+      .then(async (res) => {
+        const body = (await res.json()) as SetupInfo;
+        if (cancelled) {
+          return;
+        }
+        if (!res.ok || !body.valid) {
+          setScreen("invalid");
+          return;
+        }
+        setInfo(body);
+        setScreen("login");
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setScreen("invalid");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [api, token]);
+
+  async function finishOnboarding() {
+    if (!user || busy) {
+      return;
+    }
+
+    const expected = normalizePhone(info?.phoneE164 || "");
+    const got = linkedPhoneOf(user);
+    if (expected && got && expected !== got) {
+      setError(
+        "Ese SMS no es el mismo número de WhatsApp. Salí y entrá con el que te escribió Senda."
+      );
+      await logout();
+      setScreen("login");
+      return;
+    }
+
+    const signerId = getSessionSignerId();
+    const policyId = getSpendPolicyId();
+    if (!signerId || !policyId) {
+      setError("Falta el session signer o la policy en el .env.local del sitio.");
+      setScreen("error");
+      return;
+    }
+
+    setBusy(true);
+    setScreen("working");
+    setError("");
+
+    try {
+      let wallet = stellarWalletOf(user);
+      if (!wallet) {
+        const created = await createWallet({ chainType: "stellar" });
+        if (!created.wallet.id) {
+          throw new Error("Privy no devolvió el id de la wallet.");
+        }
+        wallet = {
+          address: created.wallet.address,
+          id: created.wallet.id,
+        };
+      }
+
+      await addSigners({
+        address: wallet.address,
+        signers: [{ signerId, policyIds: [policyId] }],
+      });
+
+      const res = await fetch(`${api}/api/link-wallet`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token,
+          privyUserId: user.id,
+          walletId: wallet.id,
+          walletAddress: wallet.address,
+        }),
+      });
+      const body = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !body.ok) {
+        throw new Error(body.error || "No pude asociar la wallet.");
+      }
+
+      setScreen("done");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "No pude terminar el alta."
+      );
+      setScreen("error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (screen === "loading" || !ready) {
+    return (
+      <div className="card">
+        <h1>Senda</h1>
+        <p>Estamos abriendo tu alta…</p>
+      </div>
+    );
+  }
+
+  if (screen === "invalid") {
+    return (
+      <div className="card">
+        <h1>Este enlace ya no sirve</h1>
+        <p>Pedile a Senda uno nuevo por WhatsApp. Es de un solo uso.</p>
+        <p>
+          <a className="button" href={wa}>
+            Volver a WhatsApp
+          </a>
+        </p>
+      </div>
+    );
+  }
+
+  if (screen === "done") {
+    return (
+      <div className="card">
+        <h1>Listo, volvé a WhatsApp</h1>
+        <p>
+          Tu cuenta ya está abierta. Senda puede mover hasta{" "}
+          {SENDA_MAX_USDC_PER_TRANSACTION} dólares por envío y{" "}
+          {SENDA_MAX_USDC_PER_DAY} por día.
+        </p>
+        <p>
+          <a className="button" href={wa}>
+            Abrir el chat
+          </a>
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card">
+      <h1>Abrí tu cuenta</h1>
+      <p>
+        Una sola vez. Entrá con el mismo número de WhatsApp
+        {info?.phoneHint ? ` (${info.phoneHint})` : ""}.
+      </p>
+      <p className="hint">
+        Después le das permiso a Senda para mover tu plata, con tope de{" "}
+        {SENDA_MAX_USDC_PER_TRANSACTION} por envío y {SENDA_MAX_USDC_PER_DAY} por
+        día.
+      </p>
+      {error ? <p className="error">{error}</p> : null}
+      {!authenticated ? (
+        <button
+          type="button"
+          onClick={() =>
+            login({
+              loginMethods: ["sms"],
+              prefill: info?.phoneE164
+                ? { type: "phone", value: info.phoneE164 }
+                : undefined,
+            })
+          }
+          disabled={busy}
+        >
+          Entrar con SMS
+        </button>
+      ) : (
+        <button type="button" onClick={() => void finishOnboarding()} disabled={busy}>
+          {busy || screen === "working" ? "Creando tu cuenta…" : "Crear mi cuenta"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+export function SetupClient() {
+  return (
+    <Suspense
+      fallback={
+        <div className="card">
+          <h1>Senda</h1>
+          <p>Estamos abriendo tu alta…</p>
+        </div>
+      }
+    >
+      <SetupInner />
+    </Suspense>
+  );
+}

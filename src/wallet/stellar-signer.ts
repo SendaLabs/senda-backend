@@ -6,6 +6,8 @@ export interface SignableAccount {
   publicKey: string;
   secretKey?: string;
   privyWalletId?: string;
+  privyUserId?: string;
+  phone?: string;
 }
 
 export async function signStellarTransaction(

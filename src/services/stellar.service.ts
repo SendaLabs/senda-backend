@@ -39,6 +39,8 @@ export interface CreatedAccount {
   publicKey: string;
   secretKey: string;
   privyWalletId?: string;
+  privyUserId?: string;
+  phone?: string;
 }
 
 export interface CreditOnChainResult {
@@ -213,18 +215,14 @@ export async function getOrCreateUserAccount(
   phone: string
 ): Promise<CreatedAccount> {
   if (usePrivyWallets()) {
-    try {
-      const account = await resolvePrivyAccount(phone);
-      await ensureFunded(account.publicKey);
-      return account;
-    } catch (error) {
-      logSafeError("Privy wallet, fallback a custodia local", error);
-    }
+    const account = await resolvePrivyAccount(phone);
+    await ensureFunded(account.publicKey);
+    return { ...account, phone };
   }
 
   const { account } = await resolveCustodialAccount(phone);
   await ensureFunded(account.publicKey);
-  return account;
+  return { ...account, phone };
 }
 
 async function submitHorizonPayment(

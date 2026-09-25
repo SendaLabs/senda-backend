@@ -36,9 +36,10 @@ test("sin Privy firma con la seed local y no guarda el hash crudo", async () => 
     tx
   );
   assert.equal(tx.signatures.length, 1);
+  delete process.env.USE_PRIVY_WALLETS;
 });
 
-test("con privyWalletId arma hash, pide raw_sign y adjunta la firma", async () => {
+test("una wallet Privy se firma con el session signer, no con la seed de la app", async () => {
   process.env.USE_PRIVY_WALLETS = "true";
   const keypair = Keypair.random();
   const tx = buildPayment(keypair.publicKey());
@@ -48,7 +49,7 @@ test("con privyWalletId arma hash, pide raw_sign y adjunta la firma", async () =
   const original = privy.signStellarHash;
   let seenWallet = "";
   let seenHash = "";
-  privy.signStellarHash = async (walletId: string, hash: Buffer) => {
+  privy.signStellarHash = async (walletId, hash) => {
     seenWallet = walletId;
     seenHash = hash.toString("hex");
     return Buffer.from(keypair.sign(hash));
@@ -59,6 +60,7 @@ test("con privyWalletId arma hash, pide raw_sign y adjunta la firma", async () =
       {
         publicKey: keypair.publicKey(),
         privyWalletId: "wallet_mpc_1",
+        phone: "5491100000000",
       },
       tx
     );
