@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   detectLocale,
+  inferLocale,
   isGreeting,
   welcomeMenuText,
   welcomeVideoCaption,
@@ -18,6 +19,9 @@ test("hello cambia a inglés y hola se queda en español", () => {
   assert.equal(isGreeting("hello"), true);
   assert.equal(isGreeting("hola"), true);
   assert.equal(isGreeting("send 10"), false);
+  assert.equal(inferLocale("send 10 dollars"), "en");
+  assert.equal(inferLocale("what's my balance"), "en");
+  assert.equal(inferLocale("mandar 10 dolares"), "es");
 });
 
 test("la bienvenida y el menú existen en los dos idiomas", () => {

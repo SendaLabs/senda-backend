@@ -37,7 +37,7 @@ export function getBackendPublicUrl(): string {
 }
 
 export function setupShortUrl(token: string): string {
-  return `${getBackendPublicUrl()}/s/${token}`;
+  return `${getWebSetupBaseUrl()}/s/${token}`;
 }
 
 export function setupFullUrl(token: string): string {

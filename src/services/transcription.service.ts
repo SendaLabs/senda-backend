@@ -44,7 +44,6 @@ export async function transcribeAudioBuffer(
       contentType: mimeType,
     });
     form.append("model", getTranscriptionModel());
-    form.append("language", "es");
     form.append("response_format", "json");
 
     const { data } = await axios.post<{ text?: string }>(

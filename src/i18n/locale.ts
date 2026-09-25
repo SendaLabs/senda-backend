@@ -16,12 +16,39 @@ export function normalizeLocaleText(text: string): string {
     .trim();
 }
 
+const EN_MARKERS =
+  /\b(the|you|your|please|want|need|send|sending|withdraw|balance|dollars?|help|can|could|would|i'm|i\s+am|what'?s|how\s+much|cash\s+out|payment\s+link|hello|hi|hey|good\s+morning)\b/;
+
+const ES_MARKERS =
+  /\b(hola|holis|quiero|necesito|mandar|enviar|saldo|cuanto|por\s+favor|retirar|dolares|ayuda|rendir|cobro|buenas)\b/;
+
 export function detectLocale(text: string): Locale | null {
   const normalized = normalizeLocaleText(text);
   if (EN_GREETING.test(normalized)) {
     return "en";
   }
   if (ES_GREETING.test(normalized)) {
+    return "es";
+  }
+  return null;
+}
+
+/** Saludo o frase clara. Sirve para texto y para notas de voz transcritas. */
+export function inferLocale(text: string): Locale | null {
+  const greeting = detectLocale(text);
+  if (greeting) {
+    return greeting;
+  }
+  const normalized = normalizeLocaleText(text);
+  if (!normalized) {
+    return null;
+  }
+  const en = EN_MARKERS.test(normalized);
+  const es = ES_MARKERS.test(normalized);
+  if (en && !es) {
+    return "en";
+  }
+  if (es && !en) {
     return "es";
   }
   return null;

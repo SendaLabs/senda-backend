@@ -39,7 +39,7 @@ import {
   yieldWithdrawProcessingText,
   yieldWithdrawReadyText,
 } from "../i18n/copy";
-import { detectLocale, isGreeting, type Locale } from "../i18n/locale";
+import { inferLocale, isGreeting, type Locale } from "../i18n/locale";
 import { maybeInviteWalletSetup } from "../wallet/wallet-setup";
 import {
   ConversationStep,
@@ -110,7 +110,7 @@ function localeOf(phone: string, fallback: Locale = "es"): Locale {
 }
 
 function rememberLocale(phone: string, text: string, name: string): Locale {
-  const detected = detectLocale(text);
+  const detected = inferLocale(text);
   const locale = detected ?? localeOf(phone);
   const current = getSession(phone);
   if (current) {

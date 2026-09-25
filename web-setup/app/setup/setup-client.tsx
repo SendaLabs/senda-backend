@@ -2,7 +2,7 @@
 
 import { usePrivy, useSigners } from "@privy-io/react-auth";
 import { useCreateWallet } from "@privy-io/react-auth/extended-chains";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { SetupInfo } from "../../lib/backend";
 import {
   getSendaApiUrl,
@@ -45,15 +45,53 @@ function SetupInner({
   const { createWallet } = useCreateWallet();
   const { addSigners } = useSigners();
 
-  const [info] = useState<SetupInfo | null>(initial.valid ? initial : null);
+  const [info, setInfo] = useState<SetupInfo | null>(
+    initial.valid ? initial : null
+  );
   const [screen, setScreen] = useState<Screen>(() =>
-    !token || !initial.valid ? "invalid" : "login"
+    !token ? "invalid" : initial.valid ? "login" : initial.error ? "loading" : "invalid"
   );
   const [error, setError] = useState(initial.error || "");
   const [busy, setBusy] = useState(false);
 
   const api = useMemo(() => getSendaApiUrl(), []);
   const wa = useMemo(() => getWhatsAppReturnUrl(), []);
+
+  useEffect(() => {
+    if (!token || initial.valid || !initial.error) {
+      return;
+    }
+    let cancelled = false;
+    fetch(`${api}/api/setup/${encodeURIComponent(token)}`)
+      .then(async (res) => {
+        const body = (await res.json()) as SetupInfo;
+        if (cancelled) {
+          return;
+        }
+        if (body.valid) {
+          setInfo(body);
+          setError("");
+          setScreen("login");
+          return;
+        }
+        setError(
+          body.error ||
+            (res.status >= 500
+              ? "Senda no pudo validar el enlace. Probá de nuevo en un rato."
+              : "")
+        );
+        setScreen("invalid");
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError("No pude hablar con Senda. Probá de nuevo en un momento.");
+          setScreen("invalid");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, initial.error, initial.valid, token]);
 
   async function finishOnboarding() {
     if (!user || busy) {
