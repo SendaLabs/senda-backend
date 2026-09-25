@@ -10,8 +10,10 @@ export type UserIntent =
   | { type: "yield_supply"; amount: number | null }
   | { type: "yield_position" }
   | { type: "yield_withdraw"; amount: number | null }
+  | { type: "cobro"; amount: number | null }
+  | { type: "sep7_pay" }
   | { type: "menu" }
-  | { type: "option"; option: "1" | "2" }
+  | { type: "option"; option: "1" | "2" | "3" | "4" | "5" | "6" }
   | { type: "unknown" };
 
 const MAX_PLAUSIBLE_USDC = 500;
@@ -63,16 +65,19 @@ const WITHDRAW_STATUS_RE =
   /\b(mi\s+codigo|codigo\s+de\s+retiro|donde\s+retiro|donde\s+cobro|mi\s+retiro|orden\s+de\s+retiro)\b/;
 
 const MERCADO_PAGO_RE =
-  /\b(mercado\s*pago|mercadopago|cvu|alias|retirar a mi cuenta|a mi cuenta)\b/;
+  /\b(mercado\s*pago|mercadopago|cvu|alias|retirar a mi cuenta|a mi cuenta|retirar a mercado pago|pasar a mercado pago)\b/;
 
 const YIELD_SUPPLY_RE =
-  /\b(poner a rendir|invertir|rendir|hacer rendir|meter a rendir)\b/;
+  /\b(poner a rendir|poner\s+\d+(?:[.,]\d+)?\s+a\s+rendir|invertir|hacer rendir|meter a rendir|a rendir)\b/;
 
 const YIELD_POSITION_RE =
-  /\b(cuanto tengo rindiendo|cuanto estoy rindiendo|mi rendimiento|lo que rinde)\b/;
+  /\b(cuanto tengo rindiendo|cuanto estoy rindiendo|cuanto rinde|mi rendimiento|lo que rinde|lo que esta rindiendo)\b/;
 
 const YIELD_WITHDRAW_RE =
-  /\b(sacar de rendir|retirar (de )?rendimiento|sacar (el )?rendimiento|dejar de rendir)\b/;
+  /\b(sacar de rendir|sacar\s+\d+(?:[.,]\d+)?\s+de\s+rendir|retirar (de )?rendimiento|sacar (el )?rendimiento|dejar de rendir)\b/;
+
+const COBRO_RE =
+  /\b(generame un link de cobro|generar un link de cobro|link de cobro|cobro con qr|generar qr|armame un cobro|quiero cobrar)\b/;
 
 const CURRENCY = "usdc|usd|dolares|dolar|dlls|bucks";
 
@@ -97,7 +102,7 @@ const WANT_RE =
 const MENU_RE =
   /^(menu|hola|holis|buenas|buen\s+dia|buenos\s+dias|buenas\s+tardes|buenas\s+noches|hey|inicio|empezar|start|ayuda|help|que\s+tal|como\s+estas)$/;
 
-const OPTION_RE = /^(1|2|1️⃣|2️⃣)$/;
+const OPTION_RE = /^(1|2|3|4|5|6|1️⃣|2️⃣|3️⃣|4️⃣|5️⃣|6️⃣)$/;
 
 export function normalizeText(text: string): string {
   return text
@@ -247,8 +252,17 @@ export function classifyIntent(text: string): UserIntent {
   }
 
   if (OPTION_RE.test(raw) || OPTION_RE.test(normalized)) {
-    const option = normalized.includes("2") ? "2" : "1";
-    return { type: "option", option };
+    const digit = normalized.replace(/[^\d]/g, "");
+    if (
+      digit === "1" ||
+      digit === "2" ||
+      digit === "3" ||
+      digit === "4" ||
+      digit === "5" ||
+      digit === "6"
+    ) {
+      return { type: "option", option: digit };
+    }
   }
 
   if (MENU_RE.test(normalized)) {
@@ -262,6 +276,14 @@ export function classifyIntent(text: string): UserIntent {
   const wantsAction = WANT_RE.test(normalized);
   const amount = extractUsdAmount(normalized);
   const partner = extractPartner(normalized);
+
+  if (/web\+stellar:pay\?/i.test(raw) || /web\+stellar:pay\?/i.test(normalized)) {
+    return { type: "sep7_pay" };
+  }
+
+  if (COBRO_RE.test(normalized)) {
+    return { type: "cobro", amount };
+  }
 
   if (YIELD_POSITION_RE.test(normalized)) {
     return { type: "yield_position" };

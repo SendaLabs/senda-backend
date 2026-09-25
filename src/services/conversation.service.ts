@@ -19,8 +19,15 @@ import {
 import {
   creditUserOnTestnet,
   explorerTxUrl,
+  getOrCreateUserAccount,
   getUserOnChainState,
 } from "./stellar.service";
+import { transferUsdcFromWallet } from "./usdc.service";
+import {
+  buildSendaCobroUri,
+  parseSep7PayUri,
+  renderSep7QrPng,
+} from "../qr/sep7";
 import {
   createCashWithdrawal,
   extractPartner,
@@ -40,6 +47,7 @@ import {
 import {
   logSafeError,
   sendWhatsAppMessage,
+  sendWhatsAppImage,
   sendWhatsAppVideo,
   WELCOME_MENU_TEXT,
   WELCOME_VIDEO_CAPTION,
@@ -62,6 +70,9 @@ const ASK_YIELD_SUPPLY_AMOUNT =
 
 const ASK_YIELD_WITHDRAW_AMOUNT =
   "¿Cuánto querés sacar de lo que está rindiendo? Por ejemplo 10.";
+
+const ASK_COBRO_AMOUNT =
+  "¿De cuánto es el cobro? Por ejemplo 15. Si no importa el monto, escribí «cualquiera».";
 
 const MAX_USDC_PER_SEND = 500;
 
@@ -486,6 +497,106 @@ async function startYieldWithdrawFlow(
   }
 }
 
+async function startCobroFlow(
+  to: string,
+  name: string,
+  amount: number | null
+): Promise<void> {
+  if (amount === null) {
+    setSession(to, { step: ConversationStep.AWAITING_COBRO_AMOUNT, name });
+    await sendWhatsAppMessage(to, ASK_COBRO_AMOUNT);
+    return;
+  }
+  await sendCobroLink(to, name, amount);
+}
+
+async function sendCobroLink(
+  to: string,
+  name: string,
+  amount?: number
+): Promise<void> {
+  const user = await getOrCreateUserAccount(to);
+  const uri = buildSendaCobroUri(user.publicKey, amount);
+  const png = await renderSep7QrPng(uri);
+  const caption = [
+    amount
+      ? `Este es tu link de cobro por ${formatUsdcLabel(amount)} dólares.`
+      : "Este es tu link de cobro.",
+    "Si la otra persona también usa Senda, que pegue el link acá en el chat.",
+    "Si usa otra app (Lobstr o Freighter), que abra el link o escanee el código.",
+  ].join("\n");
+
+  setSession(to, idleSession(name));
+  await sendWhatsAppImage(to, png, caption, "cobro-senda.png");
+  await sendWhatsAppMessage(to, uri);
+}
+
+async function paySep7Link(
+  to: string,
+  name: string,
+  text: string,
+  amountOverride?: number
+): Promise<void> {
+  const parsed = parseSep7PayUri(text);
+  if (!parsed) {
+    await sendWhatsAppMessage(
+      to,
+      "No pude leer ese link de cobro. Pedile a la otra persona que te lo mande de nuevo."
+    );
+    return;
+  }
+
+  const payer = await getOrCreateUserAccount(to);
+  if (parsed.destination === payer.publicKey) {
+    setSession(to, idleSession(name));
+    await sendWhatsAppMessage(
+      to,
+      "Ese link de cobro es tuyo. Mandáselo a la otra persona para que te pague."
+    );
+    return;
+  }
+
+  const amount = amountOverride ?? Number(parsed.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    setSession(to, {
+      step: ConversationStep.AWAITING_SEP7_AMOUNT,
+      name,
+      pendingDestination: parsed.destination,
+    });
+    await sendWhatsAppMessage(
+      to,
+      "El link no trae monto. ¿Cuánto querés pagar? Por ejemplo 10."
+    );
+    return;
+  }
+
+  await sendWhatsAppMessage(
+    to,
+    `Pago de ${formatUsdcLabel(amount)} dólares en camino...`
+  );
+
+  try {
+    const result = await withPhoneLock(to, () =>
+      transferUsdcFromWallet(payer, parsed.destination, amount)
+    );
+    setSession(to, idleSession(name));
+    await sendWhatsAppMessage(
+      to,
+      [
+        `Listo. Ya pagaste ${result.amountUsdc} dólares.`,
+        `Tu saldo ahora es ${result.balanceUsdc} USDC.`,
+        result.txHash ? `Comprobante: ${explorerTxUrl(result.txHash)}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n")
+    );
+  } catch (error) {
+    logSafeError("Error al pagar SEP-7", error);
+    setSession(to, idleSession(name));
+    await sendWhatsAppMessage(to, humanizeLedgerError(error));
+  }
+}
+
 async function handleYieldPosition(to: string, name: string): Promise<void> {
   setSession(to, idleSession(name));
   try {
@@ -532,6 +643,12 @@ async function dispatchIntent(
       return;
     case "yield_withdraw":
       await startYieldWithdrawFlow(to, name, intent.amount);
+      return;
+    case "cobro":
+      await startCobroFlow(to, name, intent.amount);
+      return;
+    case "sep7_pay":
+      await paySep7Link(to, name, text);
       return;
     case "withdraw_status":
       await handleWithdrawStatus(to, name);
@@ -636,6 +753,8 @@ async function handleIncomingWhatsAppMessageInner(
     intent.type === "yield_supply" ||
     intent.type === "yield_position" ||
     intent.type === "yield_withdraw" ||
+    intent.type === "cobro" ||
+    intent.type === "sep7_pay" ||
     (intent.type === "send" && intent.amount !== null && hasSendVerb(text))
   ) {
     await dispatchIntent(from, session.name, text);
@@ -704,6 +823,41 @@ async function handleIncomingWhatsAppMessageInner(
       return;
     }
     await startYieldSupplyFlow(from, session.name, amount);
+    return;
+  }
+
+  if (session.step === ConversationStep.AWAITING_COBRO_AMOUNT) {
+    if (/^(cualquiera|sin monto|da igual|no importa)$/i.test(normalizeText(text))) {
+      await sendCobroLink(from, session.name);
+      return;
+    }
+    const amount = extractUsdAmount(text);
+    if (amount === null) {
+      await sendWhatsAppMessage(
+        from,
+        `No vi un monto en lo que escribiste. ${ASK_COBRO_AMOUNT}`
+      );
+      return;
+    }
+    await sendCobroLink(from, session.name, amount);
+    return;
+  }
+
+  if (session.step === ConversationStep.AWAITING_SEP7_AMOUNT) {
+    const amount = extractUsdAmount(text);
+    if (amount === null || !session.pendingDestination) {
+      await sendWhatsAppMessage(
+        from,
+        "No vi un monto. Decime cuánto querés pagar, por ejemplo 10."
+      );
+      return;
+    }
+    await paySep7Link(
+      from,
+      session.name,
+      `web+stellar:pay?destination=${session.pendingDestination}&amount=${amount}`,
+      amount
+    );
     return;
   }
 

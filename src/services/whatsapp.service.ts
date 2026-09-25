@@ -33,8 +33,18 @@ export const WELCOME_VIDEO_URL = FALLBACK_WELCOME_VIDEO_URL;
 export const WELCOME_VIDEO_CAPTION =
   "¡Hola! 👋 Bienvenido a Senda. Te ayudo a enviar y recibir USDC al toque, sin vueltas.";
 
-export const WELCOME_MENU_TEXT =
-  "¿En qué te ayudo?\n\nEscribime o mandame una nota de voz. Por ejemplo:\n• «cuánto tengo» o «ver mis USDC»\n• «quiero mandar 20 dólares a mi mamá»\n• «retirar 15 en MoneyGram» o «sacar efectivo»\n• «retirar 20 a Mercado Pago»\n• «poner 10 a rendir» o «cuánto tengo rindiendo»";
+export const WELCOME_MENU_TEXT = [
+  "¿En qué te ayudo? Escribí el número o la frase:",
+  "",
+  "1. Enviar USDC",
+  "2. Ver saldo",
+  "3. Retirar en efectivo",
+  "4. Pasar a Mercado Pago",
+  "5. Poner a rendir",
+  "6. Cuánto tengo rindiendo",
+  "",
+  "También sirve una nota de voz. Ejemplos: «mandar 5», «retirar 2 en MoneyGram», «poner 1 a rendir».",
+].join("\n");
 
 export interface WhatsAppMessageResponse {
   messaging_product: "whatsapp";
@@ -52,20 +62,21 @@ type WhatsAppOutgoingPayload = {
   recipient_type?: "individual";
   to?: string;
   recipient?: string;
-  type: "text" | "video";
+  type: "text" | "video" | "image";
   text?: { body: string };
   video?: { link?: string; id?: string; caption?: string };
+  image?: { link?: string; id?: string; caption?: string };
 };
 
 export class WhatsAppSendError extends Error {
   readonly status?: number;
   readonly code?: number;
   readonly to: string;
-  readonly kind: "text" | "video";
+  readonly kind: "text" | "video" | "image";
 
   constructor(params: {
     to: string;
-    kind: "text" | "video";
+    kind: "text" | "video" | "image";
     status?: number;
     code?: number;
     message: string;
@@ -312,6 +323,10 @@ export async function sendWhatsAppVideo(
   link: string,
   caption?: string
 ): Promise<WhatsAppMessageResponse> {
+  if (/^(1|true|yes)$/i.test(process.env.WELCOME_SKIP_VIDEO?.trim() || "")) {
+    throw new Error("Video de bienvenida desactivado");
+  }
+
   try {
     const mediaId = await uploadWelcomeVideo();
     return await postWhatsAppMessage({
@@ -330,5 +345,37 @@ export async function sendWhatsAppVideo(
     to,
     type: "video",
     video: caption ? { link, caption } : { link },
+  });
+}
+
+export async function sendWhatsAppImage(
+  to: string,
+  image: Buffer,
+  caption?: string,
+  filename = "cobro.png"
+): Promise<WhatsAppMessageResponse> {
+  const { token, phoneNumberId } = getWhatsAppConfig();
+  const form = new FormData();
+  form.append("messaging_product", "whatsapp");
+  form.append("type", "image");
+  form.append("file", new Blob([image], { type: "image/png" }), filename);
+
+  const { data } = await axios.post<{ id?: string }>(
+    `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/media`,
+    form,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      maxBodyLength: 8 * 1024 * 1024,
+    }
+  );
+  if (!data.id) {
+    throw new Error("Meta no devolvió id de media para la imagen");
+  }
+
+  return postWhatsAppMessage({
+    messaging_product: "whatsapp",
+    to,
+    type: "image",
+    image: caption ? { id: data.id, caption } : { id: data.id },
   });
 }

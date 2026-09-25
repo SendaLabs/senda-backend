@@ -13,6 +13,8 @@ export const ConversationStep = {
   AWAITING_MP_AMOUNT: "AWAITING_MP_AMOUNT",
   AWAITING_YIELD_SUPPLY_AMOUNT: "AWAITING_YIELD_SUPPLY_AMOUNT",
   AWAITING_YIELD_WITHDRAW_AMOUNT: "AWAITING_YIELD_WITHDRAW_AMOUNT",
+  AWAITING_COBRO_AMOUNT: "AWAITING_COBRO_AMOUNT",
+  AWAITING_SEP7_AMOUNT: "AWAITING_SEP7_AMOUNT",
 } as const;
 
 export type ConversationStep =
@@ -23,6 +25,7 @@ export interface ConversationSession {
   name: string;
   pendingAmount?: number;
   pendingPartner?: OfframpPartnerId;
+  pendingDestination?: string;
 }
 
 type SessionStore = Record<string, ConversationSession>;
@@ -63,10 +66,20 @@ export function setSession(
   return session;
 }
 
-export function parseMenuOption(text: string): "1" | "2" | null {
+export function parseMenuOption(
+  text: string
+): "1" | "2" | "3" | "4" | "5" | "6" | null {
   const digits = text.trim().replace(/[^\d]/g, "");
-  if (digits === "1") return "1";
-  if (digits === "2") return "2";
+  if (
+    digits === "1" ||
+    digits === "2" ||
+    digits === "3" ||
+    digits === "4" ||
+    digits === "5" ||
+    digits === "6"
+  ) {
+    return digits;
+  }
   return null;
 }
 
