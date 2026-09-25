@@ -13,7 +13,7 @@ export function cobroChatCaption(amount?: number): string {
   return [
     head,
     "Mandale esta foto o el enlace de abajo a quien te tiene que pagar.",
-    "Si también usa Senda, que pegue el enlace en el chat.",
+    "Si escanean el código, se abre una página de Senda. Si también usan el chat, que peguen el enlace.",
   ].join("\n");
 }
 

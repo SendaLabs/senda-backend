@@ -541,9 +541,8 @@ async function sendCobroLink(
     destination: user.publicKey,
     amount,
   });
-  const uri = buildSendaCobroUri(user.publicKey, amount);
-  const png = await renderSep7QrPng(uri);
   const shareUrl = cobroPublicUrl(cobro.token);
+  const png = await renderSep7QrPng(shareUrl);
 
   setSession(to, idleSession(name));
   await sendWhatsAppImage(to, png, cobroChatCaption(amount), "cobro-senda.png");
