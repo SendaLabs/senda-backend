@@ -19,7 +19,11 @@ import { hasPrivyCredentials, isPrivySelfCustodyReady } from "./config/flags";
 import { mountSetupRoutes } from "./wallet/setup.routes";
 import { startHorizonListener } from "./stellar/horizon-listener";
 import { ensureTreasuryUsdcTrustline } from "./stellar/treasury";
-import { refreshUtilizationGuard } from "./yield/utilization-guard";
+import {
+  areYieldDepositsBlocked,
+  getLastBlendUtilization,
+  refreshUtilizationGuard,
+} from "./yield/utilization-guard";
 import {
   safeReconcileYieldDaily,
   safeSyncYieldAccounting,
@@ -89,6 +93,8 @@ app.get("/ready", (_req: Request, res: Response) => {
     network: process.env.STELLAR_NETWORK ?? "testnet",
     welcomeVideo:
       process.env.WELCOME_SKIP_VIDEO?.trim() === "true" ? "skipped" : "enabled",
+    blendUtilization: getLastBlendUtilization(),
+    yieldDepositsBlocked: areYieldDepositsBlocked(),
   };
   const ok =
     checks.whatsappToken &&

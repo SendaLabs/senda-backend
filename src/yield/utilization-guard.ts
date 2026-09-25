@@ -10,8 +10,15 @@ let depositsBlocked = false;
 let lastUtilization: number | null = null;
 
 export function getMaxBlendUtilization(): number {
-  const raw = Number(process.env.BLEND_MAX_UTILIZATION ?? DEFAULT_MAX);
-  return Number.isFinite(raw) && raw > 0 && raw < 1 ? raw : DEFAULT_MAX;
+  const raw = process.env.BLEND_MAX_UTILIZATION?.trim();
+  if (raw) {
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 && parsed < 1
+      ? parsed
+      : DEFAULT_MAX;
+  }
+  // El pool de Testnet suele estar >85%. En public seguimos el tope conservador.
+  return process.env.STELLAR_NETWORK === "public" ? DEFAULT_MAX : 0.95;
 }
 
 export function areYieldDepositsBlocked(): boolean {
