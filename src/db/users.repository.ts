@@ -1,6 +1,4 @@
-import path from "path";
-import { getDataDir } from "../services/data-dir";
-import { mutateJsonFile, readJsonFile } from "../services/json-store";
+import { getDb, nowIso } from "./sqlite";
 
 export interface StoredUser {
   phone: string;
@@ -34,28 +32,83 @@ export interface StoredYieldPosition {
   updatedAt: string;
 }
 
-interface DbFile {
-  users: StoredUser[];
-  transactions: StoredTransaction[];
-  yieldPositions: StoredYieldPosition[];
+type UserRow = {
+  phone: string;
+  privy_user_id: string | null;
+  privy_wallet_id: string | null;
+  stellar_public_key: string;
+};
+
+type TxRow = {
+  id: string;
+  phone: string;
+  type: string;
+  amount_usdc: string;
+  status: string;
+  tx_hash: string | null;
+  sep24_transaction_id: string | null;
+  sep24_jwt_enc: string | null;
+  provider_id: string | null;
+  horizon_confirmed: number;
+  anchor_confirmed: number;
+  last_notified_status: string | null;
+  created_at: string;
+};
+
+type YieldRow = {
+  phone: string;
+  shares_stroops: string;
+  b_usdc_balance: string;
+  accrued_yield_usdc: string;
+  last_synced_value_usdc: string;
+  updated_at: string;
+};
+
+function mapUser(row: UserRow): StoredUser {
+  return {
+    phone: row.phone,
+    privyUserId: row.privy_user_id,
+    privyWalletId: row.privy_wallet_id,
+    stellarPublicKey: row.stellar_public_key,
+  };
 }
 
-function dbPath(): string {
-  return path.join(getDataDir(), "senda-db.json");
+function mapTx(row: TxRow): StoredTransaction {
+  return {
+    id: row.id,
+    phone: row.phone,
+    type: row.type,
+    amountUsdc: row.amount_usdc,
+    status: row.status,
+    txHash: row.tx_hash ?? undefined,
+    sep24TransactionId: row.sep24_transaction_id ?? undefined,
+    sep24JwtEnc: row.sep24_jwt_enc ?? undefined,
+    providerId: row.provider_id ?? undefined,
+    horizonConfirmed: Boolean(row.horizon_confirmed),
+    anchorConfirmed: Boolean(row.anchor_confirmed),
+    lastNotifiedStatus: row.last_notified_status ?? undefined,
+    createdAt: row.created_at,
+  };
 }
 
-function emptyDb(): DbFile {
-  return { users: [], transactions: [], yieldPositions: [] };
-}
-
-function readDb(): DbFile {
-  return readJsonFile<DbFile>(dbPath(), emptyDb());
+function mapYield(row: YieldRow): StoredYieldPosition {
+  return {
+    phone: row.phone,
+    sharesStroops: row.shares_stroops,
+    bUsdcBalance: row.b_usdc_balance,
+    accruedYieldUsdc: row.accrued_yield_usdc,
+    lastSyncedValueUsdc: row.last_synced_value_usdc,
+    updatedAt: row.updated_at,
+  };
 }
 
 export async function findUserByPhone(
   phone: string
 ): Promise<StoredUser | null> {
-  return readDb().users.find((user) => user.phone === phone) ?? null;
+  const row = getDb()
+    .prepare("SELECT * FROM users WHERE phone = ?")
+    .get(phone) as UserRow | undefined;
+  return row ? mapUser(row) : null;
 }
 
 export async function upsertPrivyUser(
@@ -64,22 +117,24 @@ export async function upsertPrivyUser(
   stellarPublicKey: string,
   privyUserId?: string
 ): Promise<StoredUser> {
-  const next: StoredUser = {
+  const now = nowIso();
+  getDb()
+    .prepare(
+      `INSERT INTO users (phone, privy_user_id, privy_wallet_id, stellar_public_key, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(phone) DO UPDATE SET
+         privy_user_id = excluded.privy_user_id,
+         privy_wallet_id = excluded.privy_wallet_id,
+         stellar_public_key = excluded.stellar_public_key,
+         updated_at = excluded.updated_at`
+    )
+    .run(phone, privyUserId ?? null, privyWalletId, stellarPublicKey, now, now);
+  return {
     phone,
     privyWalletId,
     stellarPublicKey,
     privyUserId: privyUserId ?? null,
   };
-  await mutateJsonFile<DbFile>(dbPath(), emptyDb(), (db) => {
-    const index = db.users.findIndex((user) => user.phone === phone);
-    if (index >= 0) {
-      db.users[index] = next;
-    } else {
-      db.users.push(next);
-    }
-    return db;
-  });
-  return next;
 }
 
 export async function ensureUserRecord(
@@ -108,13 +163,30 @@ export async function createTransaction(input: {
 }): Promise<StoredTransaction> {
   const row: StoredTransaction = {
     id: `tx_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    createdAt: new Date().toISOString(),
+    createdAt: nowIso(),
     ...input,
   };
-  await mutateJsonFile<DbFile>(dbPath(), emptyDb(), (db) => {
-    db.transactions.unshift(row);
-    return db;
-  });
+  getDb()
+    .prepare(
+      `INSERT INTO transactions
+       (id, phone, type, amount_usdc, status, tx_hash, sep24_transaction_id, sep24_jwt_enc, provider_id, horizon_confirmed, anchor_confirmed, last_notified_status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      row.id,
+      row.phone,
+      row.type,
+      row.amountUsdc,
+      row.status,
+      row.txHash ?? null,
+      row.sep24TransactionId ?? null,
+      row.sep24JwtEnc ?? null,
+      row.providerId ?? null,
+      row.horizonConfirmed ? 1 : 0,
+      row.anchorConfirmed ? 1 : 0,
+      row.lastNotifiedStatus ?? null,
+      row.createdAt
+    );
   return row;
 }
 
@@ -140,40 +212,41 @@ export async function patchSep24Transaction(
     >
   >
 ): Promise<StoredTransaction | null> {
-  let updated: StoredTransaction | null = null;
-  await mutateJsonFile<DbFile>(dbPath(), emptyDb(), (db) => {
-    const row = db.transactions.find(
-      (item) => item.sep24TransactionId === sep24TransactionId
+  const current = await findSep24Transaction(sep24TransactionId);
+  if (!current) {
+    return null;
+  }
+  const next: StoredTransaction = {
+    ...current,
+    ...patch,
+    txHash: patch.txHash ?? current.txHash,
+  };
+  getDb()
+    .prepare(
+      `UPDATE transactions SET
+         status = ?, tx_hash = ?, horizon_confirmed = ?, anchor_confirmed = ?,
+         last_notified_status = ?, provider_id = ?
+       WHERE sep24_transaction_id = ?`
+    )
+    .run(
+      next.status,
+      next.txHash ?? null,
+      next.horizonConfirmed ? 1 : 0,
+      next.anchorConfirmed ? 1 : 0,
+      next.lastNotifiedStatus ?? null,
+      next.providerId ?? null,
+      sep24TransactionId
     );
-    if (!row) {
-      return db;
-    }
-    if (patch.status !== undefined) row.status = patch.status;
-    if (patch.txHash) row.txHash = patch.txHash;
-    if (patch.horizonConfirmed !== undefined) {
-      row.horizonConfirmed = patch.horizonConfirmed;
-    }
-    if (patch.anchorConfirmed !== undefined) {
-      row.anchorConfirmed = patch.anchorConfirmed;
-    }
-    if (patch.lastNotifiedStatus !== undefined) {
-      row.lastNotifiedStatus = patch.lastNotifiedStatus;
-    }
-    if (patch.providerId) row.providerId = patch.providerId;
-    updated = { ...row };
-    return db;
-  });
-  return updated;
+  return next;
 }
 
 export async function findSep24Transaction(
   sep24TransactionId: string
 ): Promise<StoredTransaction | null> {
-  return (
-    readDb().transactions.find(
-      (item) => item.sep24TransactionId === sep24TransactionId
-    ) ?? null
-  );
+  const row = getDb()
+    .prepare("SELECT * FROM transactions WHERE sep24_transaction_id = ?")
+    .get(sep24TransactionId) as TxRow | undefined;
+  return row ? mapTx(row) : null;
 }
 
 export async function upsertYieldPosition(
@@ -182,30 +255,33 @@ export async function upsertYieldPosition(
   lastSyncedValueUsdc: string,
   extras?: { sharesStroops?: string; accruedYieldUsdc?: string }
 ): Promise<void> {
-  const next: StoredYieldPosition = {
-    phone,
-    sharesStroops: extras?.sharesStroops ?? bUsdcBalance,
-    bUsdcBalance,
-    accruedYieldUsdc: extras?.accruedYieldUsdc ?? "0",
-    lastSyncedValueUsdc,
-    updatedAt: new Date().toISOString(),
-  };
-  await mutateJsonFile<DbFile>(dbPath(), emptyDb(), (db) => {
-    const index = db.yieldPositions.findIndex((item) => item.phone === phone);
-    if (index >= 0) {
-      db.yieldPositions[index] = {
-        ...db.yieldPositions[index],
-        ...next,
-      };
-    } else {
-      db.yieldPositions.push(next);
-    }
-    return db;
-  });
+  getDb()
+    .prepare(
+      `INSERT INTO yield_positions
+       (phone, shares_stroops, b_usdc_balance, accrued_yield_usdc, last_synced_value_usdc, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(phone) DO UPDATE SET
+         shares_stroops = excluded.shares_stroops,
+         b_usdc_balance = excluded.b_usdc_balance,
+         accrued_yield_usdc = excluded.accrued_yield_usdc,
+         last_synced_value_usdc = excluded.last_synced_value_usdc,
+         updated_at = excluded.updated_at`
+    )
+    .run(
+      phone,
+      extras?.sharesStroops ?? bUsdcBalance,
+      bUsdcBalance,
+      extras?.accruedYieldUsdc ?? "0",
+      lastSyncedValueUsdc,
+      nowIso()
+    );
 }
 
 export async function listYieldPositions(): Promise<StoredYieldPosition[]> {
-  return readDb().yieldPositions;
+  const rows = getDb()
+    .prepare("SELECT * FROM yield_positions")
+    .all() as YieldRow[];
+  return rows.map(mapYield);
 }
 
 export function positionSharesStroops(row: StoredYieldPosition): bigint {
@@ -217,15 +293,21 @@ export function positionSharesStroops(row: StoredYieldPosition): bigint {
 }
 
 export async function listPendingSep24(): Promise<StoredTransaction[]> {
-  return readDb().transactions.filter(
-    (item) =>
-      item.type === "withdraw_sep24" &&
-      (item.status === "pending" || item.status === "pending_user_transfer_start")
-  );
+  const rows = getDb()
+    .prepare(
+      `SELECT * FROM transactions
+       WHERE type = 'withdraw_sep24'
+         AND (status = 'pending' OR status = 'pending_user_transfer_start')`
+    )
+    .all() as TxRow[];
+  return rows.map(mapTx);
 }
 
 export async function findYieldPosition(
   phone: string
 ): Promise<StoredYieldPosition | null> {
-  return readDb().yieldPositions.find((item) => item.phone === phone) ?? null;
+  const row = getDb()
+    .prepare("SELECT * FROM yield_positions WHERE phone = ?")
+    .get(phone) as YieldRow | undefined;
+  return row ? mapYield(row) : null;
 }

@@ -1,19 +1,17 @@
-import path from "path";
-import { getDataDir } from "./data-dir";
+import { getDb } from "../db/sqlite";
 import { normalizePhoneIdentity } from "./identity.service";
-import { mutateJsonFile } from "./json-store";
 
 const MAX_CREDITS_PER_HOUR = 5;
 const MAX_DAILY_USDC = 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 
-type CreditClaim = {
-  messageId: string;
+type ClaimRow = {
+  message_id: string;
   phone: string;
   amount: number;
-  txHash?: string;
-  createdAt: number;
+  tx_hash: string | null;
+  created_at: number;
 };
 
 export class CreditRateLimitError extends Error {
@@ -31,10 +29,6 @@ export class CreditInFlightError extends Error {
 }
 
 const phoneLocks = new Map<string, Promise<unknown>>();
-
-function claimsPath(): string {
-  return path.join(getDataDir(), "credit-claims.json");
-}
 
 export async function withPhoneLock<T>(
   phone: string,
@@ -69,74 +63,48 @@ export async function beginCreditClaim(
 ): Promise<{ status: "claimed" } | { status: "duplicate"; txHash: string }> {
   const identity = normalizePhoneIdentity(phone);
   const now = Date.now();
-  type ClaimOutcome =
-    | { status: "claimed" }
-    | { status: "duplicate"; txHash: string }
-    | { status: "in_flight" }
-    | { status: "rate_limited"; reason: string };
-  let outcome: ClaimOutcome | undefined;
+  const db = getDb();
+  db.prepare("DELETE FROM credit_claims WHERE created_at < ?").run(now - DAY_MS);
 
-  await mutateJsonFile<CreditClaim[]>(claimsPath(), [], (rows) => {
-    const fresh = rows.filter((row) => now - row.createdAt <= DAY_MS);
-    const existing = fresh.find((row) => row.messageId === messageId);
-    if (existing?.txHash) {
-      outcome = { status: "duplicate", txHash: existing.txHash };
-      return fresh;
-    }
-    if (existing) {
-      outcome = { status: "in_flight" };
-      return fresh;
-    }
-
-    const hourly = fresh.filter(
-      (row) => row.phone === identity && now - row.createdAt <= HOUR_MS
-    );
-    if (hourly.length >= MAX_CREDITS_PER_HOUR) {
-      outcome = { status: "rate_limited", reason: "hourly" };
-      return fresh;
-    }
-
-    const dailyAmount = fresh
-      .filter((row) => row.phone === identity)
-      .reduce((sum, row) => sum + row.amount, 0);
-    if (dailyAmount + amount > MAX_DAILY_USDC) {
-      outcome = { status: "rate_limited", reason: "daily" };
-      return fresh;
-    }
-
-    fresh.unshift({
-      messageId,
-      phone: identity,
-      amount,
-      createdAt: now,
-    });
-    outcome = { status: "claimed" };
-    return fresh;
-  });
-
-  if (!outcome) {
-    throw new Error("No se pudo registrar el crédito");
+  const existing = db
+    .prepare("SELECT * FROM credit_claims WHERE message_id = ?")
+    .get(messageId) as ClaimRow | undefined;
+  if (existing?.tx_hash) {
+    return { status: "duplicate", txHash: existing.tx_hash };
   }
-  if (outcome.status === "in_flight") {
+  if (existing) {
     throw new CreditInFlightError();
   }
-  if (outcome.status === "rate_limited") {
-    throw new CreditRateLimitError(
-      outcome.reason === "daily"
-        ? "Alcanzaste el tope diario de envíos"
-        : "Alcanzaste el tope de envíos por hora"
-    );
+
+  const hourly = db
+    .prepare(
+      "SELECT COUNT(*) AS count FROM credit_claims WHERE phone = ? AND created_at >= ?"
+    )
+    .get(identity, now - HOUR_MS) as { count: number };
+  if (hourly.count >= MAX_CREDITS_PER_HOUR) {
+    throw new CreditRateLimitError("Alcanzaste el tope de envíos por hora");
   }
-  return outcome;
+
+  const daily = db
+    .prepare(
+      "SELECT COALESCE(SUM(amount), 0) AS total FROM credit_claims WHERE phone = ?"
+    )
+    .get(identity) as { total: number };
+  if (daily.total + amount > MAX_DAILY_USDC) {
+    throw new CreditRateLimitError("Alcanzaste el tope diario de envíos");
+  }
+
+  db.prepare(
+    "INSERT INTO credit_claims (message_id, phone, amount, tx_hash, created_at) VALUES (?, ?, ?, NULL, ?)"
+  ).run(messageId, identity, amount, now);
+  return { status: "claimed" };
 }
 
 export async function finishCreditClaim(
   messageId: string,
   txHash: string
 ): Promise<void> {
-  await mutateJsonFile<CreditClaim[]>(claimsPath(), [], (rows) =>
-    rows.map((row) =>
-      row.messageId === messageId ? { ...row, txHash } : row
-    )
-  );
+  getDb()
+    .prepare("UPDATE credit_claims SET tx_hash = ? WHERE message_id = ?")
+    .run(txHash, messageId);
 }

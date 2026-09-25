@@ -40,5 +40,9 @@ export function usePrivyWallets(): boolean {
 }
 
 export function getDatabaseUrl(): string {
-  return process.env.DATABASE_URL?.trim() || "file:../data/senda.db";
+  const configured = process.env.DATABASE_URL?.trim();
+  if (configured) {
+    return configured;
+  }
+  return "file:./data/senda.db";
 }

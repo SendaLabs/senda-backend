@@ -1,11 +1,9 @@
-import path from "path";
-import { getDataDir } from "./data-dir";
+import { getDb } from "../db/sqlite";
 import {
   decryptString,
   encryptString,
   isVaultCiphertext,
 } from "./file-vault.service";
-import { mutateJsonFile, readJsonFile } from "./json-store";
 
 export type OfframpPartnerId = "moneygram" | "comercio" | "western_union";
 
@@ -30,39 +28,82 @@ export interface OfframpOrder {
   createdAt: string;
 }
 
-function ordersPath(): string {
-  return path.join(getDataDir(), "offramp-orders.json");
+type OrderRow = {
+  id: string;
+  phone: string;
+  amount_usdc: string;
+  partner: string;
+  partner_label: string;
+  pickup_code: string;
+  location_hint: string;
+  expires_at: string;
+  status: string;
+  tx_hash: string;
+  created_at: string;
+};
+
+function decodePickup(code: string): string {
+  return isVaultCiphertext(code) ? decryptString(code) : code;
 }
 
-function decodeOrder(order: OfframpOrder): OfframpOrder {
-  if (!isVaultCiphertext(order.pickupCode)) {
-    return order;
-  }
-  return { ...order, pickupCode: decryptString(order.pickupCode) };
+function encodePickup(code: string): string {
+  return isVaultCiphertext(code) ? code : encryptString(code);
 }
 
-function encodeOrder(order: OfframpOrder): OfframpOrder {
-  if (isVaultCiphertext(order.pickupCode)) {
-    return order;
-  }
-  return { ...order, pickupCode: encryptString(order.pickupCode) };
-}
-
-function readOrders(): OfframpOrder[] {
-  return readJsonFile<OfframpOrder[]>(ordersPath(), []).map(decodeOrder);
+function mapOrder(row: OrderRow): OfframpOrder {
+  return {
+    id: row.id,
+    phone: row.phone,
+    amountUsdc: row.amount_usdc,
+    partner: row.partner as OfframpPartnerId,
+    partnerLabel: row.partner_label,
+    pickupCode: decodePickup(row.pickup_code),
+    locationHint: row.location_hint,
+    expiresAt: row.expires_at,
+    status: row.status as OfframpOrderStatus,
+    txHash: row.tx_hash,
+    createdAt: row.created_at,
+  };
 }
 
 export async function saveOfframpOrder(order: OfframpOrder): Promise<OfframpOrder> {
-  await mutateJsonFile<OfframpOrder[]>(ordersPath(), [], (orders) => {
-    const without = orders.filter((item) => item.id !== order.id);
-    without.unshift(encodeOrder(order));
-    return without;
-  });
-  return decodeOrder(order);
+  getDb()
+    .prepare(
+      `INSERT INTO offramp_orders
+       (id, phone, amount_usdc, partner, partner_label, pickup_code, location_hint, expires_at, status, tx_hash, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         phone = excluded.phone,
+         amount_usdc = excluded.amount_usdc,
+         partner = excluded.partner,
+         partner_label = excluded.partner_label,
+         pickup_code = excluded.pickup_code,
+         location_hint = excluded.location_hint,
+         expires_at = excluded.expires_at,
+         status = excluded.status,
+         tx_hash = excluded.tx_hash`
+    )
+    .run(
+      order.id,
+      order.phone,
+      order.amountUsdc,
+      order.partner,
+      order.partnerLabel,
+      encodePickup(order.pickupCode),
+      order.locationHint,
+      order.expiresAt,
+      order.status,
+      order.txHash,
+      order.createdAt
+    );
+  return { ...order, pickupCode: decodePickup(order.pickupCode) };
 }
 
 export function listOfframpOrders(phone: string): OfframpOrder[] {
-  return readOrders().filter((order) => order.phone === phone);
+  const rows = getDb()
+    .prepare("SELECT * FROM offramp_orders WHERE phone = ? ORDER BY created_at DESC")
+    .all(phone) as OrderRow[];
+  return rows.map(mapOrder);
 }
 
 export function getLatestPendingOrder(phone: string): OfframpOrder | undefined {
@@ -73,8 +114,11 @@ export function getLatestPendingOrder(phone: string): OfframpOrder | undefined {
 }
 
 export function listOrdersNeedingReconcile(): OfframpOrder[] {
-  return readOrders().filter(
-    (order) =>
-      order.status === "pending_lock" || order.status === "needs_reconcile"
-  );
+  const rows = getDb()
+    .prepare(
+      `SELECT * FROM offramp_orders
+       WHERE status = 'pending_lock' OR status = 'needs_reconcile'`
+    )
+    .all() as OrderRow[];
+  return rows.map(mapOrder);
 }

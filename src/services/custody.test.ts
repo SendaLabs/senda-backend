@@ -15,10 +15,12 @@ const { getCustodyMasterSecret, assertRuntimeSecrets } = require("./custody-secr
 const { accountFromDerivedPhone } = require("./derivation.service") as typeof import("./derivation.service");
 const { resolveCustodialAccount } = require("./custody.service") as typeof import("./custody.service");
 const { saveOfframpOrder, listOfframpOrders } = require("./offramp.store") as typeof import("./offramp.store");
-const { walletStoreContainsPlainSeeds } = require("./wallet.store") as typeof import("./wallet.store");
+const { getWalletByPhone, walletStoreContainsPlainSeeds } = require("./wallet.store") as typeof import("./wallet.store");
+const { closeDb, getDb } = require("../db/sqlite") as typeof import("../db/sqlite");
 const { redactSecrets } = require("./file-vault.service") as typeof import("./file-vault.service");
 
 after(() => {
+  closeDb();
   fs.rmSync(dataDir, { recursive: true, force: true });
 });
 
@@ -40,13 +42,12 @@ test("exige secretos distintos en el boot", () => {
 test("persiste la wallet derivada sin seed S... y no cambia la dirección al rotar", async () => {
   const phone = "5491111111111";
   const first = await resolveCustodialAccount(phone);
-  const walletsPath = path.join(dataDir, "wallets.json");
-  const raw = fs.readFileSync(walletsPath, "utf8");
+  const stored = getWalletByPhone(phone);
 
   assert.equal(first.account.publicKey, accountFromDerivedPhone(phone).publicKey);
-  assert.equal(walletStoreContainsPlainSeeds(walletsPath), false);
-  assert.match(raw, /"publicKey": "G/);
-  assert.doesNotMatch(raw, /"secretKey": "S/);
+  assert.equal(walletStoreContainsPlainSeeds(), false);
+  assert.equal(stored?.publicKey.startsWith("G"), true);
+  assert.equal(stored?.secretKey, "");
 
   process.env.CUSTODY_MASTER_SECRET = "rotated-custody-master-secret-32chars!!";
   await assert.rejects(
@@ -92,7 +93,10 @@ test("dos retiros concurrentes no se pisan", async () => {
   assert.deepEqual(new Set(orders.map((order) => order.id)), new Set(["ord-a", "ord-b"]));
   assert.deepEqual(new Set(orders.map((order) => order.pickupCode)), new Set(["AAA111", "BBB222"]));
 
-  const disk = fs.readFileSync(path.join(dataDir, "offramp-orders.json"), "utf8");
+  const rows = getDb()
+    .prepare("SELECT pickup_code FROM offramp_orders")
+    .all() as Array<{ pickup_code: string }>;
+  const disk = rows.map((row) => row.pickup_code).join(" ");
   assert.match(disk, /enc:v1:/);
   assert.doesNotMatch(disk, /AAA111|BBB222/);
 });

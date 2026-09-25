@@ -29,6 +29,7 @@ import {
   safeReconcileYieldDaily,
   safeSyncYieldAccounting,
 } from "./yield/yield-accounting-service";
+import { getDb, sqliteFilePath } from "./db/sqlite";
 import { assertNetworkConsistency } from "./services/stellar.service";
 import {
   logSafeError,
@@ -97,6 +98,8 @@ app.get("/ready", (_req: Request, res: Response) => {
       process.env.WELCOME_SKIP_VIDEO?.trim() === "true" ? "skipped" : "enabled",
     blendUtilization: getLastBlendUtilization(),
     yieldDepositsBlocked: areYieldDepositsBlocked(),
+    persist: "sqlite",
+    sqlite: sqliteFilePath(),
   };
   const ok =
     checks.whatsappToken &&
@@ -356,7 +359,9 @@ try {
 }
 
 app.listen(port, () => {
+  getDb();
   console.log(`Senda backend escuchando en http://localhost:${port}`);
+  console.log(`SQLite: ${sqliteFilePath()}`);
   void reconcileOfframpOrders().catch((error) => {
     console.error(
       error instanceof Error ? error.message : "No se pudieron reconciliar retiros"

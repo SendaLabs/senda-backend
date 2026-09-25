@@ -1,7 +1,5 @@
 import { randomBytes } from "crypto";
-import path from "path";
-import { getDataDir } from "../services/data-dir";
-import { mutateJsonFile, readJsonFile } from "../services/json-store";
+import { getDb } from "../db/sqlite";
 import { getBackendPublicUrl } from "../wallet/setup-token.store";
 
 const COBRO_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -14,10 +12,22 @@ export interface StoredCobro {
   expiresAt: string;
 }
 
-type CobroStore = Record<string, StoredCobro>;
+type CobroRow = {
+  token: string;
+  destination: string;
+  amount: number | null;
+  created_at: string;
+  expires_at: string;
+};
 
-function cobroPath(): string {
-  return path.join(getDataDir(), "cobros.json");
+function mapCobro(row: CobroRow): StoredCobro {
+  return {
+    token: row.token,
+    destination: row.destination,
+    amount: row.amount ?? undefined,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+  };
 }
 
 export function cobroPublicUrl(token: string): string {
@@ -34,28 +44,34 @@ export async function issueCobro(input: {
   amount?: number;
 }): Promise<StoredCobro> {
   const now = Date.now();
-  const token = randomBytes(16).toString("hex");
   const row: StoredCobro = {
-    token,
+    token: randomBytes(16).toString("hex"),
     destination: input.destination,
     amount: input.amount,
     createdAt: new Date(now).toISOString(),
     expiresAt: new Date(now + COBRO_TTL_MS).toISOString(),
   };
-  await mutateJsonFile<CobroStore>(cobroPath(), {}, (next) => {
-    next[token] = row;
-    return next;
-  });
+  getDb()
+    .prepare(
+      `INSERT INTO cobros (token, destination, amount, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?)`
+    )
+    .run(
+      row.token,
+      row.destination,
+      row.amount ?? null,
+      row.createdAt,
+      row.expiresAt
+    );
   return row;
 }
 
 export function peekCobro(token: string): StoredCobro | null {
-  const row = readJsonFile<CobroStore>(cobroPath(), {})[token];
-  if (!row) {
+  const row = getDb()
+    .prepare("SELECT * FROM cobros WHERE token = ?")
+    .get(token) as CobroRow | undefined;
+  if (!row || Date.parse(row.expires_at) <= Date.now()) {
     return null;
   }
-  if (Date.parse(row.expiresAt) <= Date.now()) {
-    return null;
-  }
-  return row;
+  return mapCobro(row);
 }

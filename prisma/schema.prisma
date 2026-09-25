@@ -8,8 +8,7 @@ datasource db {
 }
 
 model User {
-  id               String          @id @default(cuid())
-  phone            String          @unique
+  phone            String          @id
   privyUserId      String?
   privyWalletId    String?
   stellarPublicKey String
@@ -20,14 +19,15 @@ model User {
 }
 
 model Transaction {
-  id                 String   @id @default(cuid())
+  id                 String   @id
   phone              String
-  user               User     @relation(fields: [phone], references: [phone])
+  user               User     @relation(fields: [phone], references: [phone], onDelete: Cascade)
   type               String
   amountUsdc         String
   status             String
   txHash             String?
   sep24TransactionId String?
+  sep24JwtEnc        String?
   providerId         String?
   horizonConfirmed   Boolean  @default(false)
   anchorConfirmed    Boolean  @default(false)
@@ -36,12 +36,88 @@ model Transaction {
 }
 
 model YieldPosition {
-  id                  String   @id @default(cuid())
-  phone               String   @unique
-  user                User     @relation(fields: [phone], references: [phone])
+  phone               String   @id
+  user                User     @relation(fields: [phone], references: [phone], onDelete: Cascade)
   sharesStroops       String   @default("0")
   bUsdcBalance        String   @default("0")
   accruedYieldUsdc    String   @default("0")
   lastSyncedValueUsdc String   @default("0")
   updatedAt           DateTime @updatedAt
+}
+
+model Session {
+  phone              String  @id
+  step               String
+  name               String
+  locale             String?
+  pendingAmount      Float?
+  pendingPartner     String?
+  pendingDestination String?
+}
+
+model SetupToken {
+  token     String    @id
+  phone     String
+  createdAt DateTime
+  expiresAt DateTime
+  usedAt    DateTime?
+}
+
+model Wallet {
+  phone           String  @id
+  publicKey       String
+  privyWalletId   String?
+  encryptedSecret String?
+}
+
+model Identity {
+  phone           String    @id
+  account         String
+  passkeyId       String
+  identityJson    String
+  signersJson     String
+  createdAt       DateTime
+  lastRecoveredAt DateTime?
+  source          String
+}
+
+model Cobro {
+  token       String   @id
+  destination String
+  amount      Float?
+  createdAt   DateTime
+  expiresAt   DateTime
+}
+
+model OfframpOrder {
+  id           String   @id
+  phone        String
+  amountUsdc   String
+  partner      String
+  partnerLabel String
+  pickupCode   String
+  locationHint String
+  expiresAt    DateTime
+  status       String
+  txHash       String
+  createdAt    DateTime
+}
+
+model PendingAck {
+  phone     String   @id
+  text      String
+  createdAt DateTime
+}
+
+model CreditClaim {
+  messageId String    @id
+  phone     String
+  amount    Float
+  txHash    String?
+  createdAt DateTime
+}
+
+model ProcessedMessage {
+  id     String   @id
+  seenAt DateTime
 }

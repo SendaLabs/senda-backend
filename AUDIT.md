@@ -14,7 +14,7 @@ Fecha: 24 sep 2026. Fuentes: código local + Raven (Lumenloop `azza`, SCF #44 *S
 | SEP-10 / SEP-24 | `src/sep/` + `sep24-withdraw.service.ts` contra `testanchor.stellar.org` |
 | Blend | `blend.service.ts`: **posición por usuario**, no tesorería pooled |
 | Contrato `SendaContract` | En `/contracts`. **No** entra al flujo del bot |
-| Persistencia | JSON en `data/` (`senda-db.json`, wallets, sessions). Prisma es **esquema de referencia**, no corre |
+| Persistencia | SQLite en `data/senda.db`. `prisma/schema.prisma` documenta el modelo |
 | Colas | No hay BullMQ. Todo es in-process |
 
 Azza (directorio Lumenloop, slug `azza`, useazza.com): pagos y ahorro por WhatsApp en África. Una postulación SCF #44 Build, presupuesto USD 89.000, repo [github.com/Blocverse01](https://github.com/Blocverse01). No copiamos su código; copiamos el **patrón** que pidió el brief.

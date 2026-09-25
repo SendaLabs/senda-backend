@@ -1,10 +1,8 @@
-import path from "path";
 import type { Locale } from "../i18n/locale";
+import { getDb } from "../db/sqlite";
 import type { OfframpPartnerId } from "./offramp.store";
-import { getDataDir } from "./data-dir";
 import { hashWhatsAppSender } from "./webhook-security.service";
 import { normalizePhoneIdentity } from "./identity.service";
-import { mutateJsonFile, readJsonFile } from "./json-store";
 
 export const ConversationStep = {
   AWAITING_MENU_OPTION: "AWAITING_MENU_OPTION",
@@ -30,28 +28,47 @@ export interface ConversationSession {
   pendingDestination?: string;
 }
 
-type SessionStore = Record<string, ConversationSession>;
+type SessionRow = {
+  phone: string;
+  step: string;
+  name: string;
+  locale: string | null;
+  pending_amount: number | null;
+  pending_partner: string | null;
+  pending_destination: string | null;
+};
 
 const sessions = new Map<string, ConversationSession>();
-
-function sessionsPath(): string {
-  return path.join(getDataDir(), "sessions.json");
-}
 
 function sessionKey(phone: string): string {
   return normalizePhoneIdentity(phone);
 }
 
-function hydrateFromDisk(phone: string): ConversationSession | undefined {
-  const stored = readJsonFile<SessionStore>(sessionsPath(), {})[sessionKey(phone)];
-  if (stored) {
-    sessions.set(sessionKey(phone), stored);
+function mapSession(row: SessionRow): ConversationSession {
+  return {
+    step: row.step as ConversationStep,
+    name: row.name,
+    locale: (row.locale as Locale | null) ?? undefined,
+    pendingAmount: row.pending_amount ?? undefined,
+    pendingPartner: (row.pending_partner as OfframpPartnerId | null) ?? undefined,
+    pendingDestination: row.pending_destination ?? undefined,
+  };
+}
+
+function hydrateFromDb(phone: string): ConversationSession | undefined {
+  const row = getDb()
+    .prepare("SELECT * FROM sessions WHERE phone = ?")
+    .get(sessionKey(phone)) as SessionRow | undefined;
+  if (!row) {
+    return undefined;
   }
-  return stored;
+  const session = mapSession(row);
+  sessions.set(sessionKey(phone), session);
+  return session;
 }
 
 export function getSession(phone: string): ConversationSession | undefined {
-  return sessions.get(sessionKey(phone)) ?? hydrateFromDisk(phone);
+  return sessions.get(sessionKey(phone)) ?? hydrateFromDb(phone);
 }
 
 export function setSession(
@@ -61,10 +78,27 @@ export function setSession(
   const key = sessionKey(phone);
   sessions.set(key, session);
   console.log(`Sesión ${hashWhatsAppSender(phone)}: paso ${session.step}`);
-  void mutateJsonFile<SessionStore>(sessionsPath(), {}, (store) => {
-    store[key] = session;
-    return store;
-  });
+  getDb()
+    .prepare(
+      `INSERT INTO sessions (phone, step, name, locale, pending_amount, pending_partner, pending_destination)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(phone) DO UPDATE SET
+         step = excluded.step,
+         name = excluded.name,
+         locale = excluded.locale,
+         pending_amount = excluded.pending_amount,
+         pending_partner = excluded.pending_partner,
+         pending_destination = excluded.pending_destination`
+    )
+    .run(
+      key,
+      session.step,
+      session.name,
+      session.locale ?? null,
+      session.pendingAmount ?? null,
+      session.pendingPartner ?? null,
+      session.pendingDestination ?? null
+    );
   return session;
 }
 

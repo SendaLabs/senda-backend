@@ -1,7 +1,5 @@
 import { randomBytes } from "crypto";
-import path from "path";
-import { getDataDir } from "../services/data-dir";
-import { mutateJsonFile, readJsonFile } from "../services/json-store";
+import { getDb } from "../db/sqlite";
 
 export const SETUP_TOKEN_TTL_MS = 30 * 60 * 1000;
 
@@ -13,10 +11,22 @@ export interface SetupToken {
   usedAt?: string;
 }
 
-type TokenStore = Record<string, SetupToken>;
+type TokenRow = {
+  token: string;
+  phone: string;
+  created_at: string;
+  expires_at: string;
+  used_at: string | null;
+};
 
-function tokensPath(): string {
-  return path.join(getDataDir(), "setup-tokens.json");
+function mapToken(row: TokenRow): SetupToken {
+  return {
+    token: row.token,
+    phone: row.phone,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    usedAt: row.used_at ?? undefined,
+  };
 }
 
 export function getWebSetupBaseUrl(): string {
@@ -54,59 +64,50 @@ export function maskPhone(phone: string): string {
 
 export async function issueSetupToken(phone: string): Promise<SetupToken> {
   const now = Date.now();
-  const store = readJsonFile<TokenStore>(tokensPath(), {});
-  const reusable = Object.values(store).find(
-    (row) =>
-      row.phone === phone &&
-      !row.usedAt &&
-      Date.parse(row.expiresAt) > now + 60_000
-  );
+  const reusable = getDb()
+    .prepare(
+      `SELECT * FROM setup_tokens
+       WHERE phone = ? AND used_at IS NULL AND expires_at > ?
+       ORDER BY created_at DESC`
+    )
+    .get(phone, new Date(now + 60_000).toISOString()) as TokenRow | undefined;
   if (reusable) {
-    return reusable;
+    return mapToken(reusable);
   }
 
-  const token = randomBytes(12).toString("hex");
   const row: SetupToken = {
-    token,
+    token: randomBytes(12).toString("hex"),
     phone,
     createdAt: new Date(now).toISOString(),
     expiresAt: new Date(now + SETUP_TOKEN_TTL_MS).toISOString(),
   };
-  await mutateJsonFile<TokenStore>(tokensPath(), {}, (next) => {
-    next[token] = row;
-    return next;
-  });
+  getDb()
+    .prepare(
+      `INSERT INTO setup_tokens (token, phone, created_at, expires_at, used_at)
+       VALUES (?, ?, ?, ?, NULL)`
+    )
+    .run(row.token, row.phone, row.createdAt, row.expiresAt);
   return row;
 }
 
 export function peekSetupToken(token: string): SetupToken | null {
-  const row = readJsonFile<TokenStore>(tokensPath(), {})[token];
-  if (!row) {
+  const row = getDb()
+    .prepare("SELECT * FROM setup_tokens WHERE token = ?")
+    .get(token) as TokenRow | undefined;
+  if (!row || row.used_at || Date.parse(row.expires_at) <= Date.now()) {
     return null;
   }
-  if (row.usedAt) {
-    return null;
-  }
-  if (Date.parse(row.expiresAt) <= Date.now()) {
-    return null;
-  }
-  return row;
+  return mapToken(row);
 }
 
 export async function consumeSetupToken(token: string): Promise<SetupToken> {
-  let consumed: SetupToken | null = null;
-  await mutateJsonFile<TokenStore>(tokensPath(), {}, (store) => {
-    const row = store[token];
-    if (!row || row.usedAt || Date.parse(row.expiresAt) <= Date.now()) {
-      return store;
-    }
-    row.usedAt = new Date().toISOString();
-    store[token] = row;
-    consumed = { ...row };
-    return store;
-  });
-  if (!consumed) {
+  const current = peekSetupToken(token);
+  if (!current) {
     throw new Error("Ese enlace de alta ya no sirve. Pedime uno nuevo por WhatsApp.");
   }
-  return consumed;
+  const usedAt = new Date().toISOString();
+  getDb()
+    .prepare("UPDATE setup_tokens SET used_at = ? WHERE token = ?")
+    .run(usedAt, token);
+  return { ...current, usedAt };
 }

@@ -1,4 +1,8 @@
-/** Persistencia activa: `users.repository.ts` (JSON). Prisma queda opcional. */
+import { sqliteFilePath } from "./sqlite";
+
+/** Persistencia activa: SQLite (`data/senda.db`). */
 export function getPrisma(): never {
-  throw new Error("Prisma no está activo; usamos data/senda-db.json");
+  throw new Error(
+    `Prisma Client no corre. La base activa es SQLite en ${sqliteFilePath()}`
+  );
 }

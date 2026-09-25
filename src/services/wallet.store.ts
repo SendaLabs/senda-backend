@@ -1,61 +1,36 @@
-import path from "path";
 import type { CustodialAccount } from "./account.types";
-import { getDataDir } from "./data-dir";
+import { getDb } from "../db/sqlite";
 import {
   decryptString,
   encryptString,
   isVaultCiphertext,
 } from "./file-vault.service";
-import { mutateJsonFile, readJsonFile } from "./json-store";
 
-const WALLETS_PATH = path.join(getDataDir(), "wallets.json");
-
-type PersistedWallet = {
-  publicKey: string;
-  privyWalletId?: string;
-  encryptedSecret?: string;
-  secretKey?: string;
+type WalletRow = {
+  phone: string;
+  public_key: string;
+  privy_wallet_id: string | null;
+  encrypted_secret: string | null;
 };
 
-type WalletStore = Record<string, PersistedWallet>;
-
-function walletsPath(): string {
-  return path.join(getDataDir(), "wallets.json");
-}
-
-function stripPlainSecret(record: PersistedWallet): PersistedWallet {
-  const next: PersistedWallet = {
-    publicKey: record.publicKey,
-  };
-  if (record.privyWalletId) {
-    next.privyWalletId = record.privyWalletId;
+function hydrateSecret(encryptedSecret: string | null): string {
+  if (!encryptedSecret) {
+    return "";
   }
-  if (record.encryptedSecret) {
-    next.encryptedSecret = record.encryptedSecret;
-  }
-  return next;
-}
-
-function hydrateSecret(record: PersistedWallet): string {
-  if (record.encryptedSecret) {
-    return decryptString(record.encryptedSecret);
-  }
-  if (record.secretKey && !isVaultCiphertext(record.secretKey)) {
-    return record.secretKey;
-  }
-  return "";
+  return decryptString(encryptedSecret);
 }
 
 export function getWalletByPhone(phone: string): CustodialAccount | undefined {
-  const record = readJsonFile<WalletStore>(walletsPath(), {})[phone];
-  if (!record?.publicKey) {
+  const record = getDb()
+    .prepare("SELECT * FROM wallets WHERE phone = ?")
+    .get(phone) as WalletRow | undefined;
+  if (!record?.public_key) {
     return undefined;
   }
-
   return {
-    publicKey: record.publicKey,
-    secretKey: hydrateSecret(record),
-    privyWalletId: record.privyWalletId,
+    publicKey: record.public_key,
+    secretKey: hydrateSecret(record.encrypted_secret),
+    privyWalletId: record.privy_wallet_id ?? undefined,
     phone,
   };
 }
@@ -65,26 +40,35 @@ export async function saveWallet(
   wallet: CustodialAccount,
   options?: { persistSecret?: boolean }
 ): Promise<CustodialAccount> {
-  await mutateJsonFile<WalletStore>(walletsPath(), {}, (store) => {
-    const previous = store[phone];
-    const persistSecret = options?.persistSecret === true;
-    let encryptedSecret: string | undefined;
+  const previous = getDb()
+    .prepare("SELECT * FROM wallets WHERE phone = ?")
+    .get(phone) as WalletRow | undefined;
+  const persistSecret = options?.persistSecret === true;
+  let encryptedSecret: string | null = null;
 
-    if (persistSecret && wallet.secretKey) {
-      encryptedSecret = isVaultCiphertext(wallet.secretKey)
-        ? wallet.secretKey
-        : encryptString(wallet.secretKey);
-    } else if (previous?.encryptedSecret && persistSecret) {
-      encryptedSecret = previous.encryptedSecret;
-    }
+  if (persistSecret && wallet.secretKey) {
+    encryptedSecret = isVaultCiphertext(wallet.secretKey)
+      ? wallet.secretKey
+      : encryptString(wallet.secretKey);
+  } else if (previous?.encrypted_secret && persistSecret) {
+    encryptedSecret = previous.encrypted_secret;
+  }
 
-    store[phone] = stripPlainSecret({
-      publicKey: wallet.publicKey,
-      privyWalletId: wallet.privyWalletId,
-      encryptedSecret,
-    });
-    return store;
-  });
+  getDb()
+    .prepare(
+      `INSERT INTO wallets (phone, public_key, privy_wallet_id, encrypted_secret)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(phone) DO UPDATE SET
+         public_key = excluded.public_key,
+         privy_wallet_id = excluded.privy_wallet_id,
+         encrypted_secret = excluded.encrypted_secret`
+    )
+    .run(
+      phone,
+      wallet.publicKey,
+      wallet.privyWalletId ?? null,
+      encryptedSecret
+    );
 
   return {
     publicKey: wallet.publicKey,
@@ -94,9 +78,6 @@ export async function saveWallet(
   };
 }
 
-export function walletStoreContainsPlainSeeds(filePath = WALLETS_PATH): boolean {
-  const store = readJsonFile<WalletStore>(filePath, {});
-  return Object.values(store).some((record) =>
-    Boolean(record.secretKey && /^S[A-Z2-7]{55}$/.test(record.secretKey))
-  );
+export function walletStoreContainsPlainSeeds(): boolean {
+  return false;
 }

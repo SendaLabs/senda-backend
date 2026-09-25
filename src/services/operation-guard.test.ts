@@ -13,8 +13,10 @@ const {
   CreditInFlightError,
   CreditRateLimitError,
 } = require("./operation-guard.service") as typeof import("./operation-guard.service");
+const { closeDb } = require("../db/sqlite") as typeof import("../db/sqlite");
 
 after(() => {
+  closeDb();
   fs.rmSync(dataDir, { recursive: true, force: true });
 });
 
