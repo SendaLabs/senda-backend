@@ -8,7 +8,7 @@
     "start": "next start -p ${PORT:-3001}"
   },
   "engines": {
-    "node": ">=22.12.0"
+    "node": "22.x"
   },
   "dependencies": {
     "@privy-io/react-auth": "^3.18.0",
