@@ -277,7 +277,11 @@ export function classifyIntent(text: string): UserIntent {
   const amount = extractUsdAmount(normalized);
   const partner = extractPartner(normalized);
 
-  if (/web\+stellar:pay\?/i.test(raw) || /web\+stellar:pay\?/i.test(normalized)) {
+  if (
+    /web\+stellar:pay\?/i.test(raw) ||
+    /web\+stellar:pay\?/i.test(normalized) ||
+    /\/c\/[a-f0-9]{16,64}/i.test(raw)
+  ) {
     return { type: "sep7_pay" };
   }
 

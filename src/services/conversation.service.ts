@@ -24,6 +24,8 @@ import {
   getUserOnChainState,
 } from "./stellar.service";
 import { transferUsdcFromWallet } from "./usdc.service";
+import { cobroChatCaption } from "../qr/cobro-copy";
+import { cobroPublicUrl, extractCobroToken, issueCobro, peekCobro } from "../qr/cobro.store";
 import {
   buildSendaCobroUri,
   parseSep7PayUri,
@@ -535,19 +537,29 @@ async function sendCobroLink(
   amount?: number
 ): Promise<void> {
   const user = await getOrCreateUserAccount(to);
+  const cobro = await issueCobro({
+    destination: user.publicKey,
+    amount,
+  });
   const uri = buildSendaCobroUri(user.publicKey, amount);
   const png = await renderSep7QrPng(uri);
-  const caption = [
-    amount
-      ? `Este es tu link de cobro por ${formatUsdcLabel(amount)} dólares.`
-      : "Este es tu link de cobro.",
-    "Si la otra persona también usa Senda, que pegue el link acá en el chat.",
-    "Si usa otra app (Lobstr o Freighter), que abra el link o escanee el código.",
-  ].join("\n");
+  const shareUrl = cobroPublicUrl(cobro.token);
 
   setSession(to, idleSession(name));
-  await sendWhatsAppImage(to, png, caption, "cobro-senda.png");
-  await sendWhatsAppMessage(to, uri);
+  await sendWhatsAppImage(to, png, cobroChatCaption(amount), "cobro-senda.png");
+  await sendWhatsAppMessage(to, shareUrl);
+}
+
+function resolveCobroPayment(text: string) {
+  const token = extractCobroToken(text);
+  if (token) {
+    const stored = peekCobro(token);
+    if (!stored) {
+      return null;
+    }
+    return parseSep7PayUri(buildSendaCobroUri(stored.destination, stored.amount));
+  }
+  return parseSep7PayUri(text);
 }
 
 async function paySep7Link(
@@ -556,7 +568,7 @@ async function paySep7Link(
   text: string,
   amountOverride?: number
 ): Promise<void> {
-  const parsed = parseSep7PayUri(text);
+  const parsed = resolveCobroPayment(text);
   if (!parsed) {
     await sendWhatsAppMessage(
       to,
