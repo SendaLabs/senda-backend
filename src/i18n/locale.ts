@@ -84,7 +84,7 @@ export function welcomeMenuText(name?: string, locale: Locale = "es"): string {
       "",
       "You can type or send a voice note, like you're talking to a friend. No commands needed.",
       "",
-      "Tell me what you need: check your balance, send dollars, cash out, move money to Mercado Pago, earn yield, or create a payment link.",
+      "Tell me what you need: check your balance, send dollars, move money to Mercado Pago, earn yield, or create a payment link.",
       "",
       "I'll walk you through it, no rush.",
     ].join("\n");
@@ -97,7 +97,7 @@ export function welcomeMenuText(name?: string, locale: Locale = "es"): string {
     "",
     "Podés escribirme o mandarme una nota de voz, como si me hablaras. No hace falta ningún comando.",
     "",
-    "Decime lo que necesites: ver tu saldo, mandar dólares, sacar efectivo, pasarlos a Mercado Pago, dejarlos rindiendo o armar un cobro.",
+    "Decime lo que necesites: ver tu saldo, mandar dólares, pasarlos a Mercado Pago, dejarlos rindiendo o armar un cobro.",
     "",
     "Yo te voy guiando, sin apuro.",
   ].join("\n");

@@ -13,11 +13,7 @@ test("el guion del sábado entra a cada flujo", () => {
 
   assert.deepEqual(classifyIntent("mandar 5"), { type: "send", amount: 5 });
   assert.equal(classifyIntent("cuanto tengo").type, "balance");
-  assert.deepEqual(classifyIntent("retirar 2 en MoneyGram"), {
-    type: "withdraw",
-    amount: 2,
-    partner: "moneygram",
-  });
+  assert.equal(classifyIntent("retirar 2 en MoneyGram").type, "unknown");
   assert.deepEqual(classifyIntent("retirar 2 a Mercado Pago"), {
     type: "withdraw_mp",
     amount: 2,
@@ -52,11 +48,7 @@ test("hello y los verbos en inglés entran a los mismos flujos", () => {
   assert.equal(classifyIntent("hi").type, "menu");
   assert.deepEqual(classifyIntent("send 5"), { type: "send", amount: 5 });
   assert.equal(classifyIntent("how much do I have").type, "balance");
-  assert.deepEqual(classifyIntent("withdraw 2 at MoneyGram"), {
-    type: "withdraw",
-    amount: 2,
-    partner: "moneygram",
-  });
+  assert.equal(classifyIntent("withdraw 2 at MoneyGram").type, "unknown");
   assert.deepEqual(classifyIntent("create a payment link"), {
     type: "cobro",
     amount: null,

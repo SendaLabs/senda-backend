@@ -12,7 +12,6 @@ import {
   assertSep24AmountIn,
   isStellarAccount,
 } from "./sep24-withdraw.service";
-import { getOfframpVaultPublicKey } from "./offramp.service";
 
 test("un amount_in 10 veces mayor no se paga", () => {
   assert.throws(() => assertSep24AmountIn(20, "200"), /otro monto/);
@@ -48,15 +47,4 @@ test("el desafío SEP-10 de otro home domain se rechaza", () => {
     () => assertSep10Challenge(tx, "testanchor.stellar.org", server.publicKey()),
     /home domain/
   );
-});
-
-test("el vault de efectivo no puede ser la operativa", () => {
-  const ops = Keypair.random();
-  process.env.STELLAR_SECRET_KEY = ops.secret();
-  process.env.STELLAR_OFFRAMP_PUBLIC_KEY = ops.publicKey();
-  assert.throws(() => getOfframpVaultPublicKey(), /misma cuenta operativa/);
-
-  const vault = Keypair.random();
-  process.env.STELLAR_OFFRAMP_PUBLIC_KEY = vault.publicKey();
-  assert.equal(getOfframpVaultPublicKey(), vault.publicKey());
 });

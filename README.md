@@ -6,7 +6,7 @@ Hecho para el **Argentina Builder Challenge (BAF × Stellar), categoría genesis
 
 ## Qué es nuevo en esta iteración
 
-Sobre lo que ya existía (saludo, saldo, envío P2P, retiro a efectivo `SENDA-xxx`):
+Sobre lo que ya existía (saludo, saldo, envío P2P):
 
 1. **Wallets MPC vía Privy, self-custodial.** El usuario nuevo recibe un link de un solo uso y abre su wallet **una vez** en `/web-setup` (login SMS con el mismo WhatsApp). Ahí crea la wallet Stellar y delega el session signer de Senda. El backend **no** crea la wallet. SEP-30 queda si `USE_PRIVY_WALLETS=false`.
 2. **Tesorería + Horizon Listener.** Cuenta pooled de Senda, trustline USDC, SSE de pagos con reconexión y backoff. Un depósito **no** se confirma hasta el evento de Horizon.
@@ -14,13 +14,11 @@ Sobre lo que ya existía (saludo, saldo, envío P2P, retiro a efectivo `SENDA-xx
 4. **Ahorro pooled vía Blend v2.** Una tesorería deposita en Blend. El share de cada usuario vive en `YieldPosition` (off-chain). Cron horario + reconciliación diaria. Si el pool está muy usado, se bloquean depósitos.
 5. **Cobros QR SEP-7.** «generame un link de cobro» manda `web+stellar:pay` como imagen + texto. Si quien paga también usa Senda, paga desde el chat; si no, el link abre Lobstr/Freighter.
 
-Foto previa de este trabajo: [`AUDIT.md`](./AUDIT.md).
-
 ## Custodia (igual que Azza, más Privy)
 
 | Producto | Modelo |
 |---|---|
-| Saldo diario (enviar, recibir, efectivo, MP, cobros) | Wallet Privy del usuario + session signer de Senda. Fallback SEP-30 si Privy está apagado |
+| Saldo diario (enviar, recibir, MP, cobros) | Wallet Privy del usuario + session signer de Senda. Fallback SEP-30 si Privy está apagado |
 | Rendimiento Blend | **Pooled**: una posición on-chain de Senda. El share se trackea off-chain y se reconcilia |
 
 ## Cómo hablarle al bot
@@ -29,10 +27,9 @@ Escribí el número o la frase. También una nota de voz.
 
 1. Enviar USDC — `mandar 5`
 2. Ver saldo — `cuánto tengo`
-3. Retirar en efectivo — `retirar 2 en MoneyGram`
-4. Pasar a Mercado Pago — `retirar a mercado pago`
-5. Poner a rendir — `poner 1 a rendir`
-6. Cuánto tengo rindiendo — `cuánto tengo rindiendo`
+3. Pasar a Mercado Pago — `retirar a mercado pago`
+4. Poner a rendir — `poner 1 a rendir`
+5. Cuánto tengo rindiendo — `cuánto tengo rindiendo`
 
 También: `generame un link de cobro`. Si te pegan un `web+stellar:pay?...`, Senda intenta pagarlo con tu wallet.
 
@@ -40,7 +37,7 @@ También: `generame un link de cobro`. Si te pegan un `web+stellar:pay?...`, Sen
 
 ```
 WhatsApp Bot Service (conversation + NLU + sesiones en data/sessions.json)
-  → FiatRamp / Offramp (efectivo simulado + SEP-24)
+  → FiatRamp / Offramp (SEP-24 Mercado Pago sandbox)
   → Provider Router (hoy: Sep24AnchorAdapter)
   → Wallet Manager (Privy self-custodial + session signer, o SEP-30)
   → web-setup (Next.js, alta de una sola vez)
@@ -89,7 +86,7 @@ El jurado pide evidencia **end-to-end en un ambiente desplegado**, no solo local
 - **Deploy:** Render lee `main`. Este trabajo vive en commits de la rama actual y **no está en producción hasta que se haga merge/push a `main`**. Hasta entonces, el e2e desplegado es un **blocker explícito**.
 - **Privy:** sin `PRIVY_APP_ID` / `PRIVY_APP_SECRET` en el host, el bot cae a SEP-30. El patrón MPC no se puede demostrar en el deploy vacío.
 - **Mercado Pago real:** el ancla de dev es `testanchor.stellar.org`. Alfred Pay / Ripio Ramps quedan como candidatos de producción; no hay CVU real acreditado.
-- **Retiro en efectivo:** simulado (código `SENDA-xxx`). No hay MoneyGram ni Western Union en vivo.
+- **Retiro en efectivo:** fuera del producto. Roadmap interno Instawards. El chat no lo menciona.
 - **KYC / tiers:** en Testnet el ahorro no pide documentos.
 - **BullMQ, Postgres, Bridge, mainnet:** fuera de scope.
 
@@ -110,7 +107,6 @@ No hay tareas “a medias” en el código. Lo que no llega a producción está 
 | `BLEND_MAX_UTILIZATION` | Tope para aceptar depósitos (default `0.85`) |
 | `CUSTODY_MASTER_SECRET` | Fallback SEP-30. Distinto de la operativa |
 | `FILE_VAULT_SECRET` | Cifrado en reposo. Distinto de los otros |
-| `STELLAR_OFFRAMP_PUBLIC_KEY` | Vault de efectivo. Distinta de la operativa |
 
 Lista completa: `.env.example`. Nunca commitear `.env`.
 

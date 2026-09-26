@@ -13,7 +13,6 @@ import {
   verifyMetaSignature,
 } from "./services/webhook-security.service";
 import { assertRuntimeSecrets } from "./services/custody-secrets.service";
-import { reconcileOfframpOrders } from "./services/offramp.service";
 import { resumePendingSep24Withdrawals } from "./services/sep24-withdraw.service";
 import { hasPrivyCredentials, isPrivySelfCustodyReady } from "./config/flags";
 import { mountCobroRoutes } from "./qr/cobro.routes";
@@ -85,7 +84,6 @@ app.get("/ready", (_req: Request, res: Response) => {
     stellarSecret: Boolean(process.env.STELLAR_SECRET_KEY?.trim()),
     custodyMaster: Boolean(process.env.CUSTODY_MASTER_SECRET?.trim()),
     fileVault: Boolean(process.env.FILE_VAULT_SECRET?.trim()),
-    offrampVault: Boolean(process.env.STELLAR_OFFRAMP_PUBLIC_KEY?.trim()),
     privy: hasPrivyCredentials(),
     privyReady: isPrivySelfCustodyReady(),
     sessionSigner: Boolean(process.env.PRIVY_SESSION_SIGNER_PRIVATE_KEY?.trim()),
@@ -369,11 +367,6 @@ app.listen(port, () => {
         error instanceof Error ? error.message : "No se pudo abrir la base"
       );
     });
-  void reconcileOfframpOrders().catch((error) => {
-    console.error(
-      error instanceof Error ? error.message : "No se pudieron reconciliar retiros"
-    );
-  });
   void resumePendingSep24Withdrawals();
   void ensureTreasuryUsdcTrustline()
     .then(() => startHorizonListener())

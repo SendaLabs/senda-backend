@@ -38,6 +38,8 @@ test("la bienvenida y el menú existen en los dos idiomas", () => {
   assert.match(esMenu, /en qué te puedo ayudar/);
   assert.match(enMenu, /how can I help/i);
   assert.doesNotMatch(enMenu, /comandos/);
+  assert.doesNotMatch(esMenu, /efectivo|MoneyGram/i);
+  assert.doesNotMatch(enMenu, /cash out|MoneyGram/i);
 });
 
 test("el alta Privy también tiene inglés sin sacar el español", () => {

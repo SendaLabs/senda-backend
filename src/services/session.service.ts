@@ -1,6 +1,5 @@
 import type { Locale } from "../i18n/locale";
 import { dbGet, dbRun } from "../db/client";
-import type { OfframpPartnerId } from "./offramp.store";
 import { hashWhatsAppSender } from "./webhook-security.service";
 import { normalizePhoneIdentity } from "./identity.service";
 
@@ -24,7 +23,7 @@ export interface ConversationSession {
   name: string;
   locale?: Locale;
   pendingAmount?: number;
-  pendingPartner?: OfframpPartnerId;
+  pendingPartner?: string;
   pendingDestination?: string;
 }
 
@@ -50,7 +49,7 @@ function mapSession(row: SessionRow): ConversationSession {
     name: row.name,
     locale: (row.locale as Locale | null) ?? undefined,
     pendingAmount: row.pending_amount ?? undefined,
-    pendingPartner: (row.pending_partner as OfframpPartnerId | null) ?? undefined,
+    pendingPartner: row.pending_partner ?? undefined,
     pendingDestination: row.pending_destination ?? undefined,
   };
 }

@@ -1,13 +1,9 @@
 import { detectLocale } from "../i18n/locale";
-import type { OfframpPartnerId } from "./offramp.store";
-import { extractPartner } from "./offramp.partners";
 
 export type UserIntent =
   | { type: "balance" }
   | { type: "send"; amount: number | null }
-  | { type: "withdraw"; amount: number | null; partner: OfframpPartnerId | null }
   | { type: "withdraw_mp"; amount: number | null }
-  | { type: "withdraw_status" }
   | { type: "yield_supply"; amount: number | null }
   | { type: "yield_position" }
   | { type: "yield_withdraw"; amount: number | null }
@@ -292,7 +288,6 @@ export function classifyIntent(text: string): UserIntent {
     WITHDRAW_RE.test(normalized) || CASH_RE.test(normalized);
   const wantsAction = WANT_RE.test(normalized);
   const amount = extractUsdAmount(normalized);
-  const partner = extractPartner(normalized);
 
   if (
     /web\+stellar:pay\?/i.test(raw) ||
@@ -323,7 +318,7 @@ export function classifyIntent(text: string): UserIntent {
   }
 
   if (WITHDRAW_STATUS_RE.test(normalized)) {
-    return { type: "withdraw_status" };
+    return { type: "unknown" };
   }
 
   if (hasWithdraw && hasBalance && amount === null) {
@@ -331,7 +326,7 @@ export function classifyIntent(text: string): UserIntent {
   }
 
   if (hasWithdraw && !hasSend && !MERCADO_PAGO_RE.test(normalized)) {
-    return { type: "withdraw", amount, partner };
+    return { type: "unknown" };
   }
 
   if (hasBalance && !hasSend) {

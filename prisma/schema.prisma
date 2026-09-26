@@ -89,20 +89,6 @@ model Cobro {
   expiresAt   DateTime
 }
 
-model OfframpOrder {
-  id           String   @id
-  phone        String
-  amountUsdc   String
-  partner      String
-  partnerLabel String
-  pickupCode   String
-  locationHint String
-  expiresAt    DateTime
-  status       String
-  txHash       String
-  createdAt    DateTime
-}
-
 model PendingAck {
   phone     String   @id
   text      String

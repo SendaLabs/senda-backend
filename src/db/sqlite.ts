@@ -74,19 +74,6 @@ CREATE TABLE IF NOT EXISTS cobros (
   created_at TEXT NOT NULL,
   expires_at TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS offramp_orders (
-  id TEXT PRIMARY KEY,
-  phone TEXT NOT NULL,
-  amount_usdc TEXT NOT NULL,
-  partner TEXT NOT NULL,
-  partner_label TEXT NOT NULL,
-  pickup_code TEXT NOT NULL,
-  location_hint TEXT NOT NULL,
-  expires_at TEXT NOT NULL,
-  status TEXT NOT NULL,
-  tx_hash TEXT NOT NULL,
-  created_at TEXT NOT NULL
-);
 CREATE TABLE IF NOT EXISTS pending_acks (
   phone TEXT PRIMARY KEY,
   text TEXT NOT NULL,
@@ -377,42 +364,6 @@ function migrateLegacyJson(db: DatabaseSync): void {
       row.amount ?? null,
       row.createdAt,
       row.expiresAt
-    );
-  }
-
-  const orders = readJson<
-    Array<{
-      id: string;
-      phone: string;
-      amountUsdc: string;
-      partner: string;
-      partnerLabel: string;
-      pickupCode: string;
-      locationHint: string;
-      expiresAt: string;
-      status: string;
-      txHash: string;
-      createdAt: string;
-    }>
-  >(path.join(dir, "offramp-orders.json"), []);
-  const insertOrder = db.prepare(
-    `INSERT OR REPLACE INTO offramp_orders
-     (id, phone, amount_usdc, partner, partner_label, pickup_code, location_hint, expires_at, status, tx_hash, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  );
-  for (const order of orders) {
-    insertOrder.run(
-      order.id,
-      order.phone,
-      order.amountUsdc,
-      order.partner,
-      order.partnerLabel,
-      order.pickupCode,
-      order.locationHint,
-      order.expiresAt,
-      order.status,
-      order.txHash,
-      order.createdAt
     );
   }
 

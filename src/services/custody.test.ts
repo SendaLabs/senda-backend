@@ -16,9 +16,8 @@ process.env.STELLAR_SECRET_KEY = Keypair.random().secret();
 const { getCustodyMasterSecret, assertRuntimeSecrets } = require("./custody-secrets.service") as typeof import("./custody-secrets.service");
 const { accountFromDerivedPhone } = require("./derivation.service") as typeof import("./derivation.service");
 const { resolveCustodialAccount } = require("./custody.service") as typeof import("./custody.service");
-const { saveOfframpOrder, listOfframpOrders } = require("./offramp.store") as typeof import("./offramp.store");
 const { getWalletByPhone, walletStoreContainsPlainSeeds } = require("./wallet.store") as typeof import("./wallet.store");
-const { closeDb, getDb } = require("../db/sqlite") as typeof import("../db/sqlite");
+const { closeDb } = require("../db/sqlite") as typeof import("../db/sqlite");
 const { redactSecrets } = require("./file-vault.service") as typeof import("./file-vault.service");
 
 after(() => {
@@ -57,50 +56,6 @@ test("persiste la wallet derivada sin seed S... y no cambia la dirección al rot
     /no coincide con la cuenta persistida/
   );
   process.env.CUSTODY_MASTER_SECRET = "custody-master-secret-for-tests-32ch";
-});
-
-test("dos retiros concurrentes no se pisan", async () => {
-  const phone = "5491144444444";
-  await Promise.all([
-    saveOfframpOrder({
-      id: "ord-a",
-      phone,
-      amountUsdc: "10",
-      partner: "moneygram",
-      partnerLabel: "MoneyGram",
-      pickupCode: "AAA111",
-      locationHint: "cerca",
-      expiresAt: new Date().toISOString(),
-      status: "pending_pickup",
-      txHash: "hash-a",
-      createdAt: new Date().toISOString(),
-    }),
-    saveOfframpOrder({
-      id: "ord-b",
-      phone,
-      amountUsdc: "12",
-      partner: "comercio",
-      partnerLabel: "comercio",
-      pickupCode: "BBB222",
-      locationHint: "cerca",
-      expiresAt: new Date().toISOString(),
-      status: "pending_pickup",
-      txHash: "hash-b",
-      createdAt: new Date().toISOString(),
-    }),
-  ]);
-
-  const orders = await listOfframpOrders(phone);
-  assert.equal(orders.length, 2);
-  assert.deepEqual(new Set(orders.map((order) => order.id)), new Set(["ord-a", "ord-b"]));
-  assert.deepEqual(new Set(orders.map((order) => order.pickupCode)), new Set(["AAA111", "BBB222"]));
-
-  const rows = getDb()
-    .prepare("SELECT pickup_code FROM offramp_orders")
-    .all() as Array<{ pickup_code: string }>;
-  const disk = rows.map((row) => row.pickup_code).join(" ");
-  assert.match(disk, /enc:v1:/);
-  assert.doesNotMatch(disk, /AAA111|BBB222/);
 });
 
 test("redacta seeds Stellar en logs", () => {

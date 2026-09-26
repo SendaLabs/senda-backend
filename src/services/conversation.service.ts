@@ -2,7 +2,6 @@ import {
   askAmount,
   askCobroAmount,
   askMpAmount,
-  askWithdrawAmount,
   askYieldSupplyAmount,
   askYieldWithdrawAmount,
   balanceHintText,
@@ -23,14 +22,7 @@ import {
   sendProcessingText,
   sendReceiptText,
   startSendText,
-  withdrawAmountPickedText,
-  withdrawInsufficientText,
   withdrawMaxText,
-  withdrawNoneText,
-  withdrawPendingText,
-  withdrawProcessingText,
-  withdrawReadyText,
-  withdrawStartWithPartnerText,
   yieldMaxText,
   yieldNoneText,
   yieldPositionText,
@@ -76,15 +68,6 @@ import {
   parseSep7PayUri,
   renderSep7QrPng,
 } from "../qr/sep7";
-import {
-  createCashWithdrawal,
-  extractPartner,
-  getOpenCashWithdrawal,
-  getSpendableUsdc,
-  OfframpInsufficientFundsError,
-  partnerPrompt,
-  type OfframpPartnerId,
-} from "./offramp.service";
 import { startMercadoPagoWithdraw } from "./sep24-withdraw.service";
 import {
   deposit as supplyToBlend,
@@ -139,7 +122,6 @@ function idleSession(
   name: string,
   extras?: {
     pendingAmount?: number;
-    pendingPartner?: OfframpPartnerId;
     locale?: Locale;
     pendingDestination?: string;
   }
@@ -223,46 +205,6 @@ async function startSendFlow(to: string, name: string): Promise<void> {
   await sendWhatsAppMessage(to, startSendText(locale));
 }
 
-async function startWithdrawFlow(
-  to: string,
-  name: string,
-  amount: number | null,
-  partner: OfframpPartnerId | null
-): Promise<void> {
-  const locale = localeOf(to);
-  if (amount !== null && partner) {
-    await executeCashWithdrawal(to, name, amount, partner);
-    return;
-  }
-
-  if (amount !== null) {
-    saveSession(to, name, {
-      step: ConversationStep.AWAITING_WITHDRAW_PARTNER,
-      pendingAmount: amount,
-    });
-    await sendWhatsAppMessage(
-      to,
-      withdrawAmountPickedText(
-        locale,
-        formatUsdcLabel(amount),
-        partnerPrompt(locale)
-      )
-    );
-    return;
-  }
-
-  saveSession(to, name, {
-    step: ConversationStep.AWAITING_WITHDRAW_AMOUNT,
-    pendingPartner: partner ?? undefined,
-  });
-  await sendWhatsAppMessage(
-    to,
-    partner
-      ? withdrawStartWithPartnerText(locale, askWithdrawAmount(locale))
-      : askWithdrawAmount(locale)
-  );
-}
-
 async function executeUsdcTransfer(
   to: string,
   name: string,
@@ -288,7 +230,7 @@ async function executeUsdcTransfer(
         if (claim.status === "duplicate") {
           return {
             amountUsdc: String(usdAmount),
-            usdcBalance: await getSpendableUsdc(to),
+            usdcBalance: (await getUserOnChainState(to)).usdcBalance ?? "0",
             duplicate: true,
             txHash: claim.txHash,
           };
@@ -323,66 +265,6 @@ async function executeUsdcTransfer(
   } catch (error) {
     logSafeError("Error al acreditar", error);
     saveSession(to, name, { step: ConversationStep.AWAITING_USD_AMOUNT });
-    await sendWhatsAppMessage(to, humanizeLedgerError(error));
-  }
-}
-
-async function executeCashWithdrawal(
-  to: string,
-  name: string,
-  amount: number,
-  partner: OfframpPartnerId
-): Promise<void> {
-  const locale = localeOf(to);
-  if (amount > MAX_USDC_PER_SEND) {
-    saveSession(to, name, {
-      step: ConversationStep.AWAITING_WITHDRAW_AMOUNT,
-      pendingPartner: partner,
-    });
-    await sendWhatsAppMessage(to, withdrawMaxText(locale, MAX_USDC_PER_SEND));
-    return;
-  }
-
-  await sendWhatsAppMessage(
-    to,
-    withdrawProcessingText(locale, formatUsdcLabel(amount))
-  );
-
-  try {
-    const order = await withPhoneLock(to, () =>
-      createCashWithdrawal(to, amount, partner)
-    );
-    const remaining = await getSpendableUsdc(to);
-    saveSession(to, name);
-
-    await sendWhatsAppMessage(
-      to,
-      withdrawReadyText(
-        locale,
-        order.amountUsdc,
-        order.partnerLabel,
-        order.pickupCode,
-        order.locationHint,
-        order.txHash ? explorerTxUrl(order.txHash) : "",
-        remaining
-      )
-    );
-  } catch (error) {
-    logSafeError("Error en retiro en efectivo", error);
-    saveSession(to, name);
-
-    if (error instanceof OfframpInsufficientFundsError) {
-      await sendWhatsAppMessage(
-        to,
-        withdrawInsufficientText(
-          locale,
-          formatUsdcLabel(error.requested),
-          error.available
-        )
-      );
-      return;
-    }
-
     await sendWhatsAppMessage(to, humanizeLedgerError(error));
   }
 }
@@ -427,27 +309,6 @@ async function handleBalanceQuery(to: string, name: string): Promise<void> {
     logSafeError("Error al consultar saldo", error);
     await sendWhatsAppMessage(to, humanizeLedgerError(error));
   }
-}
-
-async function handleWithdrawStatus(to: string, name: string): Promise<void> {
-  const locale = localeOf(to);
-  saveSession(to, name);
-  const order = await getOpenCashWithdrawal(to);
-  if (!order) {
-    await sendWhatsAppMessage(to, withdrawNoneText(locale));
-    return;
-  }
-
-  await sendWhatsAppMessage(
-    to,
-    withdrawPendingText(
-      locale,
-      order.amountUsdc,
-      order.partnerLabel,
-      order.pickupCode,
-      order.locationHint
-    )
-  );
 }
 
 async function startMercadoPagoFlow(
@@ -715,9 +576,6 @@ async function dispatchIntent(
       }
       await startSendFlow(to, name);
       return;
-    case "withdraw":
-      await startWithdrawFlow(to, name, intent.amount, intent.partner);
-      return;
     case "withdraw_mp":
       await startMercadoPagoFlow(to, name, intent.amount);
       return;
@@ -736,28 +594,25 @@ async function dispatchIntent(
     case "sep7_pay":
       await paySep7Link(to, name, text);
       return;
-    case "withdraw_status":
-      await handleWithdrawStatus(to, name);
-      return;
     case "option":
       if (intent.option === "2") {
         await handleBalanceQuery(to, name);
         return;
       }
       if (intent.option === "3") {
-        await startWithdrawFlow(to, name, null, null);
-        return;
-      }
-      if (intent.option === "4") {
         await startMercadoPagoFlow(to, name, null);
         return;
       }
-      if (intent.option === "5") {
+      if (intent.option === "4") {
         await startYieldSupplyFlow(to, name, null);
         return;
       }
-      if (intent.option === "6") {
+      if (intent.option === "5") {
         await handleYieldPosition(to, name);
+        return;
+      }
+      if (intent.option === "6") {
+        await startCobroFlow(to, name, null);
         return;
       }
       await startSendFlow(to, name);
@@ -847,8 +702,6 @@ async function handleIncomingWhatsAppMessageInner(
   if (
     intent.type === "balance" ||
     intent.type === "menu" ||
-    intent.type === "withdraw" ||
-    intent.type === "withdraw_status" ||
     intent.type === "withdraw_mp" ||
     intent.type === "yield_supply" ||
     intent.type === "yield_position" ||
@@ -866,37 +719,11 @@ async function handleIncomingWhatsAppMessageInner(
     return;
   }
 
-  if (session.step === ConversationStep.AWAITING_WITHDRAW_AMOUNT) {
-    const amount = extractUsdAmount(text);
-    const partner = extractPartner(text) ?? session.pendingPartner ?? null;
-
-    if (amount === null) {
-      await sendWhatsAppMessage(
-        from,
-        missingAmountText(locale, askWithdrawAmount(locale))
-      );
-      return;
-    }
-
-    await startWithdrawFlow(from, session.name, amount, partner);
-    return;
-  }
-
-  if (session.step === ConversationStep.AWAITING_WITHDRAW_PARTNER) {
-    const amount = session.pendingAmount ?? extractUsdAmount(text);
-    const partner = extractPartner(text);
-
-    if (!partner) {
-      await sendWhatsAppMessage(from, partnerPrompt(locale));
-      return;
-    }
-
-    if (amount === null) {
-      await startWithdrawFlow(from, session.name, null, partner);
-      return;
-    }
-
-    await executeCashWithdrawal(from, session.name, amount, partner);
+  if (
+    session.step === ConversationStep.AWAITING_WITHDRAW_AMOUNT ||
+    session.step === ConversationStep.AWAITING_WITHDRAW_PARTNER
+  ) {
+    await sendMenu(from, session.name, locale);
     return;
   }
 

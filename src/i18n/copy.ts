@@ -6,12 +6,6 @@ export function askAmount(locale: Locale): string {
     : "¿Cuánto querés enviar? Podés escribir 10, «20 dólares» o «mandar 15 USDC».";
 }
 
-export function askWithdrawAmount(locale: Locale): string {
-  return locale === "en"
-    ? 'How much cash do you want to withdraw? For example 20 or "15 dollars".'
-    : "¿Cuánto querés retirar en efectivo? Por ejemplo 20 o «15 dólares».";
-}
-
 export function askMpAmount(locale: Locale): string {
   return locale === "en"
     ? 'How much do you want to move to Mercado Pago? For example 20 or "15 dollars".'
@@ -72,7 +66,7 @@ export function sendReceiptText(
       `You now have ${balance} USDC.`,
       proof ? `Receipt: ${proof}` : "",
       "",
-      "If you want, ask me for your balance, send another amount, cash out, or move it to Mercado Pago.",
+      "If you want, ask me for your balance, send another amount, or move it to Mercado Pago.",
     ]
       .filter((line, index, lines) => line !== "" || lines[index + 1] !== "")
       .join("\n");
@@ -82,7 +76,7 @@ export function sendReceiptText(
     `Ahora tenés ${balance} USDC.`,
     proof ? `Comprobante: ${proof}` : "",
     "",
-    "Si querés, pedime el saldo, mandá otro monto, retiralo en efectivo o pasalo a Mercado Pago.",
+    "Si querés, pedime el saldo, mandá otro monto o pasalo a Mercado Pago.",
   ]
     .filter((line, index, lines) => line !== "" || lines[index + 1] !== "")
     .join("\n");
@@ -90,73 +84,8 @@ export function sendReceiptText(
 
 export function withdrawMaxText(locale: Locale, max: number): string {
   return locale === "en"
-    ? `For now the max per cash-out is ${max} dollars. Give me another amount.`
+    ? `For now the max per withdrawal is ${max} dollars. Give me another amount.`
     : `Por ahora el máximo por retiro es ${max} dólares. Decime otro monto.`;
-}
-
-export function withdrawProcessingText(locale: Locale, amount: string): string {
-  return locale === "en"
-    ? `On it! Setting aside ${amount} USDC for your cash pickup...`
-    : `¡Listo! Reservando ${amount} USDC para tu retiro en efectivo...`;
-}
-
-export function withdrawReadyText(
-  locale: Locale,
-  amount: string,
-  partnerLabel: string,
-  pickupCode: string,
-  locationHint: string,
-  proof: string,
-  remaining: string
-): string {
-  if (locale === "en") {
-    return [
-      `Done 💵 We set aside ${amount} dollars for you to pick up.`,
-      "",
-      `Network: ${partnerLabel}`,
-      `Code: ${pickupCode}`,
-      locationHint,
-      "Bring your ID. The code is good for 48 hours.",
-      proof ? `Receipt: ${proof}` : "",
-      "",
-      `Your balance is now ${remaining} USDC.`,
-    ]
-      .filter((line, index, lines) => line !== "" || lines[index + 1] !== "")
-      .join("\n");
-  }
-  return [
-    `Listo 💵 Ya dejamos aparte ${amount} dólares para que los retires.`,
-    "",
-    `Red: ${partnerLabel}`,
-    `Código: ${pickupCode}`,
-    locationHint,
-    "Llevá tu documento. El código vale 48 horas.",
-    proof ? `Comprobante: ${proof}` : "",
-    "",
-    `Tu saldo ahora es ${remaining} USDC.`,
-  ]
-    .filter((line, index, lines) => line !== "" || lines[index + 1] !== "")
-    .join("\n");
-}
-
-export function withdrawInsufficientText(
-  locale: Locale,
-  requested: string,
-  available: string
-): string {
-  return locale === "en"
-    ? `You don't have enough to withdraw ${requested} dollars. You currently have ${available} USDC.`
-    : `No te alcanza el saldo para retirar ${requested} dólares. Ahora tenés ${available} USDC.`;
-}
-
-export function withdrawAmountPickedText(locale: Locale, amount: string, prompt: string): string {
-  return locale === "en"
-    ? `Got it, cash-out of ${amount} dollars.\n\n${prompt}`
-    : `Perfecto, retiro de ${amount} dólares.\n\n${prompt}`;
-}
-
-export function withdrawStartWithPartnerText(locale: Locale, ask: string): string {
-  return locale === "en" ? `Sure, I'll set up the cash-out. ${ask}` : `Dale, te armo el retiro. ${ask}`;
 }
 
 export function missingAmountText(locale: Locale, ask: string): string {
@@ -179,36 +108,8 @@ export function balanceYieldingText(locale: Locale, yielding: string): string {
 
 export function balanceHintText(locale: Locale): string {
   return locale === "en"
-    ? 'If you want to send, write "send 10". For cash, "withdraw 15 at MoneyGram". Also: Mercado Pago, earn yield, or "create a payment link".'
-    : "Si querés enviar, escribí «mandar 10». Si querés efectivo, «retirar 15 en MoneyGram». También: Mercado Pago, poner a rendir o «generame un link de cobro».";
-}
-
-export function withdrawNoneText(locale: Locale): string {
-  return locale === "en"
-    ? 'You don\'t have a pending cash-out. If you want cash, write "withdraw 20 at MoneyGram".'
-    : "No tenés un retiro pendiente. Si querés efectivo, escribí «retirar 20 en MoneyGram».";
-}
-
-export function withdrawPendingText(
-  locale: Locale,
-  amount: string,
-  partnerLabel: string,
-  pickupCode: string,
-  locationHint: string
-): string {
-  return locale === "en"
-    ? [
-        `Your ${amount}-dollar cash-out is still pending.`,
-        `Network: ${partnerLabel}`,
-        `Code: ${pickupCode}`,
-        locationHint,
-      ].join("\n")
-    : [
-        `Tu retiro de ${amount} dólares sigue pendiente.`,
-        `Red: ${partnerLabel}`,
-        `Código: ${pickupCode}`,
-        locationHint,
-      ].join("\n");
+    ? 'If you want to send, write "send 10". Also: Mercado Pago, earn yield, or "create a payment link".'
+    : "Si querés enviar, escribí «mandar 10». También: Mercado Pago, poner a rendir o «generame un link de cobro».";
 }
 
 export function mpProcessingText(locale: Locale, amount: string): string {
@@ -372,22 +273,6 @@ export function isAnyAmount(text: string): boolean {
   return /^(cualquiera|sin monto|da igual|no importa|any|whatever|doesnt matter|no amount)$/i.test(
     text
   );
-}
-
-export function partnerPromptText(locale: Locale): string {
-  return locale === "en"
-    ? [
-        "Where do you want to pick up the cash?",
-        "• MoneyGram",
-        "• A shop on the Senda network",
-        "• Western Union",
-      ].join("\n")
-    : [
-        "¿Dónde querés retirar el efectivo?",
-        "• MoneyGram",
-        "• Un comercio de la red Senda",
-        "• Western Union",
-      ].join("\n");
 }
 
 export function cobroChatCaptionText(locale: Locale, amountLabel?: string): string {
