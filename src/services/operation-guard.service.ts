@@ -1,4 +1,4 @@
-import { getDb } from "../db/sqlite";
+import { dbGet, dbRun } from "../db/client";
 import { normalizePhoneIdentity } from "./identity.service";
 
 const MAX_CREDITS_PER_HOUR = 5;
@@ -63,12 +63,12 @@ export async function beginCreditClaim(
 ): Promise<{ status: "claimed" } | { status: "duplicate"; txHash: string }> {
   const identity = normalizePhoneIdentity(phone);
   const now = Date.now();
-  const db = getDb();
-  db.prepare("DELETE FROM credit_claims WHERE created_at < ?").run(now - DAY_MS);
+  await dbRun("DELETE FROM credit_claims WHERE created_at < ?", now - DAY_MS);
 
-  const existing = db
-    .prepare("SELECT * FROM credit_claims WHERE message_id = ?")
-    .get(messageId) as ClaimRow | undefined;
+  const existing = await dbGet<ClaimRow>(
+    "SELECT * FROM credit_claims WHERE message_id = ?",
+    messageId
+  );
   if (existing?.tx_hash) {
     return { status: "duplicate", txHash: existing.tx_hash };
   }
@@ -76,27 +76,30 @@ export async function beginCreditClaim(
     throw new CreditInFlightError();
   }
 
-  const hourly = db
-    .prepare(
-      "SELECT COUNT(*) AS count FROM credit_claims WHERE phone = ? AND created_at >= ?"
-    )
-    .get(identity, now - HOUR_MS) as { count: number };
-  if (hourly.count >= MAX_CREDITS_PER_HOUR) {
+  const hourly = await dbGet<{ count: number }>(
+    "SELECT COUNT(*) AS count FROM credit_claims WHERE phone = ? AND created_at >= ?",
+    identity,
+    now - HOUR_MS
+  );
+  if ((hourly?.count ?? 0) >= MAX_CREDITS_PER_HOUR) {
     throw new CreditRateLimitError("Alcanzaste el tope de envíos por hora");
   }
 
-  const daily = db
-    .prepare(
-      "SELECT COALESCE(SUM(amount), 0) AS total FROM credit_claims WHERE phone = ?"
-    )
-    .get(identity) as { total: number };
-  if (daily.total + amount > MAX_DAILY_USDC) {
+  const daily = await dbGet<{ total: number }>(
+    "SELECT COALESCE(SUM(amount), 0) AS total FROM credit_claims WHERE phone = ?",
+    identity
+  );
+  if (Number(daily?.total ?? 0) + amount > MAX_DAILY_USDC) {
     throw new CreditRateLimitError("Alcanzaste el tope diario de envíos");
   }
 
-  db.prepare(
-    "INSERT INTO credit_claims (message_id, phone, amount, tx_hash, created_at) VALUES (?, ?, ?, NULL, ?)"
-  ).run(messageId, identity, amount, now);
+  await dbRun(
+    "INSERT INTO credit_claims (message_id, phone, amount, tx_hash, created_at) VALUES (?, ?, ?, NULL, ?)",
+    messageId,
+    identity,
+    amount,
+    now
+  );
   return { status: "claimed" };
 }
 
@@ -104,7 +107,9 @@ export async function finishCreditClaim(
   messageId: string,
   txHash: string
 ): Promise<void> {
-  getDb()
-    .prepare("UPDATE credit_claims SET tx_hash = ? WHERE message_id = ?")
-    .run(txHash, messageId);
+  await dbRun(
+    "UPDATE credit_claims SET tx_hash = ? WHERE message_id = ?",
+    txHash,
+    messageId
+  );
 }

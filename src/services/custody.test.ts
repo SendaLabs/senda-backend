@@ -7,6 +7,8 @@ import { Keypair } from "@stellar/stellar-sdk";
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "senda-custody-"));
 process.env.SENDA_DATA_DIR = dataDir;
+delete process.env.DATABASE_URL;
+delete process.env.SUPABASE_DB_URL;
 process.env.CUSTODY_MASTER_SECRET = "custody-master-secret-for-tests-32ch";
 process.env.FILE_VAULT_SECRET = "file-vault-secret-for-tests-32chars";
 process.env.STELLAR_SECRET_KEY = Keypair.random().secret();
@@ -42,7 +44,7 @@ test("exige secretos distintos en el boot", () => {
 test("persiste la wallet derivada sin seed S... y no cambia la dirección al rotar", async () => {
   const phone = "5491111111111";
   const first = await resolveCustodialAccount(phone);
-  const stored = getWalletByPhone(phone);
+  const stored = await getWalletByPhone(phone);
 
   assert.equal(first.account.publicKey, accountFromDerivedPhone(phone).publicKey);
   assert.equal(walletStoreContainsPlainSeeds(), false);
@@ -88,7 +90,7 @@ test("dos retiros concurrentes no se pisan", async () => {
     }),
   ]);
 
-  const orders = listOfframpOrders(phone);
+  const orders = await listOfframpOrders(phone);
   assert.equal(orders.length, 2);
   assert.deepEqual(new Set(orders.map((order) => order.id)), new Set(["ord-a", "ord-b"]));
   assert.deepEqual(new Set(orders.map((order) => order.pickupCode)), new Set(["AAA111", "BBB222"]));

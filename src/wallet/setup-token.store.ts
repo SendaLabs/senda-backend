@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import { getDb } from "../db/sqlite";
+import { dbGet, dbRun } from "../db/client";
 
 export const SETUP_TOKEN_TTL_MS = 30 * 60 * 1000;
 
@@ -31,10 +31,7 @@ function mapToken(row: TokenRow): SetupToken {
 
 export function getWebSetupBaseUrl(): string {
   return (
-    process.env.WEB_SETUP_PUBLIC_URL?.trim() ||
-    process.env.PUBLIC_BASE_URL?.trim() ||
-    process.env.RENDER_EXTERNAL_URL?.trim() ||
-    "http://localhost:3001"
+    process.env.WEB_SETUP_PUBLIC_URL?.trim() || "http://localhost:3001"
   ).replace(/\/$/, "");
 }
 
@@ -64,13 +61,13 @@ export function maskPhone(phone: string): string {
 
 export async function issueSetupToken(phone: string): Promise<SetupToken> {
   const now = Date.now();
-  const reusable = getDb()
-    .prepare(
-      `SELECT * FROM setup_tokens
-       WHERE phone = ? AND used_at IS NULL AND expires_at > ?
-       ORDER BY created_at DESC`
-    )
-    .get(phone, new Date(now + 60_000).toISOString()) as TokenRow | undefined;
+  const reusable = await dbGet<TokenRow>(
+    `SELECT * FROM setup_tokens
+     WHERE phone = ? AND used_at IS NULL AND expires_at > ?
+     ORDER BY created_at DESC`,
+    phone,
+    new Date(now + 60_000).toISOString()
+  );
   if (reusable) {
     return mapToken(reusable);
   }
@@ -81,19 +78,22 @@ export async function issueSetupToken(phone: string): Promise<SetupToken> {
     createdAt: new Date(now).toISOString(),
     expiresAt: new Date(now + SETUP_TOKEN_TTL_MS).toISOString(),
   };
-  getDb()
-    .prepare(
-      `INSERT INTO setup_tokens (token, phone, created_at, expires_at, used_at)
-       VALUES (?, ?, ?, ?, NULL)`
-    )
-    .run(row.token, row.phone, row.createdAt, row.expiresAt);
+  await dbRun(
+    `INSERT INTO setup_tokens (token, phone, created_at, expires_at, used_at)
+     VALUES (?, ?, ?, ?, NULL)`,
+    row.token,
+    row.phone,
+    row.createdAt,
+    row.expiresAt
+  );
   return row;
 }
 
-export function peekSetupToken(token: string): SetupToken | null {
-  const row = getDb()
-    .prepare("SELECT * FROM setup_tokens WHERE token = ?")
-    .get(token) as TokenRow | undefined;
+export async function peekSetupToken(token: string): Promise<SetupToken | null> {
+  const row = await dbGet<TokenRow>(
+    "SELECT * FROM setup_tokens WHERE token = ?",
+    token
+  );
   if (!row || row.used_at || Date.parse(row.expires_at) <= Date.now()) {
     return null;
   }
@@ -101,13 +101,11 @@ export function peekSetupToken(token: string): SetupToken | null {
 }
 
 export async function consumeSetupToken(token: string): Promise<SetupToken> {
-  const current = peekSetupToken(token);
+  const current = await peekSetupToken(token);
   if (!current) {
     throw new Error("Ese enlace de alta ya no sirve. Pedime uno nuevo por WhatsApp.");
   }
   const usedAt = new Date().toISOString();
-  getDb()
-    .prepare("UPDATE setup_tokens SET used_at = ? WHERE token = ?")
-    .run(usedAt, token);
+  await dbRun("UPDATE setup_tokens SET used_at = ? WHERE token = ?", usedAt, token);
   return { ...current, usedAt };
 }

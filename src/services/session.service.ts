@@ -1,5 +1,5 @@
 import type { Locale } from "../i18n/locale";
-import { getDb } from "../db/sqlite";
+import { dbGet, dbRun } from "../db/client";
 import type { OfframpPartnerId } from "./offramp.store";
 import { hashWhatsAppSender } from "./webhook-security.service";
 import { normalizePhoneIdentity } from "./identity.service";
@@ -55,10 +55,17 @@ function mapSession(row: SessionRow): ConversationSession {
   };
 }
 
-function hydrateFromDb(phone: string): ConversationSession | undefined {
-  const row = getDb()
-    .prepare("SELECT * FROM sessions WHERE phone = ?")
-    .get(sessionKey(phone)) as SessionRow | undefined;
+export async function hydrateSession(
+  phone: string
+): Promise<ConversationSession | undefined> {
+  const cached = sessions.get(sessionKey(phone));
+  if (cached) {
+    return cached;
+  }
+  const row = await dbGet<SessionRow>(
+    "SELECT * FROM sessions WHERE phone = ?",
+    sessionKey(phone)
+  );
   if (!row) {
     return undefined;
   }
@@ -68,7 +75,7 @@ function hydrateFromDb(phone: string): ConversationSession | undefined {
 }
 
 export function getSession(phone: string): ConversationSession | undefined {
-  return sessions.get(sessionKey(phone)) ?? hydrateFromDb(phone);
+  return sessions.get(sessionKey(phone));
 }
 
 export function setSession(
@@ -78,27 +85,24 @@ export function setSession(
   const key = sessionKey(phone);
   sessions.set(key, session);
   console.log(`Sesión ${hashWhatsAppSender(phone)}: paso ${session.step}`);
-  getDb()
-    .prepare(
-      `INSERT INTO sessions (phone, step, name, locale, pending_amount, pending_partner, pending_destination)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(phone) DO UPDATE SET
-         step = excluded.step,
-         name = excluded.name,
-         locale = excluded.locale,
-         pending_amount = excluded.pending_amount,
-         pending_partner = excluded.pending_partner,
-         pending_destination = excluded.pending_destination`
-    )
-    .run(
-      key,
-      session.step,
-      session.name,
-      session.locale ?? null,
-      session.pendingAmount ?? null,
-      session.pendingPartner ?? null,
-      session.pendingDestination ?? null
-    );
+  void dbRun(
+    `INSERT INTO sessions (phone, step, name, locale, pending_amount, pending_partner, pending_destination)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(phone) DO UPDATE SET
+       step = excluded.step,
+       name = excluded.name,
+       locale = excluded.locale,
+       pending_amount = excluded.pending_amount,
+       pending_partner = excluded.pending_partner,
+       pending_destination = excluded.pending_destination`,
+    key,
+    session.step,
+    session.name,
+    session.locale ?? null,
+    session.pendingAmount ?? null,
+    session.pendingPartner ?? null,
+    session.pendingDestination ?? null
+  );
   return session;
 }
 

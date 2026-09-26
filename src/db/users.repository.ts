@@ -1,4 +1,5 @@
-import { getDb, nowIso } from "./sqlite";
+import { dbAll, dbGet, dbRun } from "./client";
+import { nowIso } from "./sqlite";
 
 export interface StoredUser {
   phone: string;
@@ -105,9 +106,7 @@ function mapYield(row: YieldRow): StoredYieldPosition {
 export async function findUserByPhone(
   phone: string
 ): Promise<StoredUser | null> {
-  const row = getDb()
-    .prepare("SELECT * FROM users WHERE phone = ?")
-    .get(phone) as UserRow | undefined;
+  const row = await dbGet<UserRow>("SELECT * FROM users WHERE phone = ?", phone);
   return row ? mapUser(row) : null;
 }
 
@@ -118,17 +117,21 @@ export async function upsertPrivyUser(
   privyUserId?: string
 ): Promise<StoredUser> {
   const now = nowIso();
-  getDb()
-    .prepare(
-      `INSERT INTO users (phone, privy_user_id, privy_wallet_id, stellar_public_key, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(phone) DO UPDATE SET
-         privy_user_id = excluded.privy_user_id,
-         privy_wallet_id = excluded.privy_wallet_id,
-         stellar_public_key = excluded.stellar_public_key,
-         updated_at = excluded.updated_at`
-    )
-    .run(phone, privyUserId ?? null, privyWalletId, stellarPublicKey, now, now);
+  await dbRun(
+    `INSERT INTO users (phone, privy_user_id, privy_wallet_id, stellar_public_key, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(phone) DO UPDATE SET
+       privy_user_id = excluded.privy_user_id,
+       privy_wallet_id = excluded.privy_wallet_id,
+       stellar_public_key = excluded.stellar_public_key,
+       updated_at = excluded.updated_at`,
+    phone,
+    privyUserId ?? null,
+    privyWalletId,
+    stellarPublicKey,
+    now,
+    now
+  );
   return {
     phone,
     privyWalletId,
@@ -166,27 +169,24 @@ export async function createTransaction(input: {
     createdAt: nowIso(),
     ...input,
   };
-  getDb()
-    .prepare(
-      `INSERT INTO transactions
-       (id, phone, type, amount_usdc, status, tx_hash, sep24_transaction_id, sep24_jwt_enc, provider_id, horizon_confirmed, anchor_confirmed, last_notified_status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      row.id,
-      row.phone,
-      row.type,
-      row.amountUsdc,
-      row.status,
-      row.txHash ?? null,
-      row.sep24TransactionId ?? null,
-      row.sep24JwtEnc ?? null,
-      row.providerId ?? null,
-      row.horizonConfirmed ? 1 : 0,
-      row.anchorConfirmed ? 1 : 0,
-      row.lastNotifiedStatus ?? null,
-      row.createdAt
-    );
+  await dbRun(
+    `INSERT INTO transactions
+     (id, phone, type, amount_usdc, status, tx_hash, sep24_transaction_id, sep24_jwt_enc, provider_id, horizon_confirmed, anchor_confirmed, last_notified_status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    row.id,
+    row.phone,
+    row.type,
+    row.amountUsdc,
+    row.status,
+    row.txHash ?? null,
+    row.sep24TransactionId ?? null,
+    row.sep24JwtEnc ?? null,
+    row.providerId ?? null,
+    row.horizonConfirmed ? 1 : 0,
+    row.anchorConfirmed ? 1 : 0,
+    row.lastNotifiedStatus ?? null,
+    row.createdAt
+  );
   return row;
 }
 
@@ -221,31 +221,29 @@ export async function patchSep24Transaction(
     ...patch,
     txHash: patch.txHash ?? current.txHash,
   };
-  getDb()
-    .prepare(
-      `UPDATE transactions SET
-         status = ?, tx_hash = ?, horizon_confirmed = ?, anchor_confirmed = ?,
-         last_notified_status = ?, provider_id = ?
-       WHERE sep24_transaction_id = ?`
-    )
-    .run(
-      next.status,
-      next.txHash ?? null,
-      next.horizonConfirmed ? 1 : 0,
-      next.anchorConfirmed ? 1 : 0,
-      next.lastNotifiedStatus ?? null,
-      next.providerId ?? null,
-      sep24TransactionId
-    );
+  await dbRun(
+    `UPDATE transactions SET
+       status = ?, tx_hash = ?, horizon_confirmed = ?, anchor_confirmed = ?,
+       last_notified_status = ?, provider_id = ?
+     WHERE sep24_transaction_id = ?`,
+    next.status,
+    next.txHash ?? null,
+    next.horizonConfirmed ? 1 : 0,
+    next.anchorConfirmed ? 1 : 0,
+    next.lastNotifiedStatus ?? null,
+    next.providerId ?? null,
+    sep24TransactionId
+  );
   return next;
 }
 
 export async function findSep24Transaction(
   sep24TransactionId: string
 ): Promise<StoredTransaction | null> {
-  const row = getDb()
-    .prepare("SELECT * FROM transactions WHERE sep24_transaction_id = ?")
-    .get(sep24TransactionId) as TxRow | undefined;
+  const row = await dbGet<TxRow>(
+    "SELECT * FROM transactions WHERE sep24_transaction_id = ?",
+    sep24TransactionId
+  );
   return row ? mapTx(row) : null;
 }
 
@@ -255,32 +253,27 @@ export async function upsertYieldPosition(
   lastSyncedValueUsdc: string,
   extras?: { sharesStroops?: string; accruedYieldUsdc?: string }
 ): Promise<void> {
-  getDb()
-    .prepare(
-      `INSERT INTO yield_positions
-       (phone, shares_stroops, b_usdc_balance, accrued_yield_usdc, last_synced_value_usdc, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(phone) DO UPDATE SET
-         shares_stroops = excluded.shares_stroops,
-         b_usdc_balance = excluded.b_usdc_balance,
-         accrued_yield_usdc = excluded.accrued_yield_usdc,
-         last_synced_value_usdc = excluded.last_synced_value_usdc,
-         updated_at = excluded.updated_at`
-    )
-    .run(
-      phone,
-      extras?.sharesStroops ?? bUsdcBalance,
-      bUsdcBalance,
-      extras?.accruedYieldUsdc ?? "0",
-      lastSyncedValueUsdc,
-      nowIso()
-    );
+  await dbRun(
+    `INSERT INTO yield_positions
+     (phone, shares_stroops, b_usdc_balance, accrued_yield_usdc, last_synced_value_usdc, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(phone) DO UPDATE SET
+       shares_stroops = excluded.shares_stroops,
+       b_usdc_balance = excluded.b_usdc_balance,
+       accrued_yield_usdc = excluded.accrued_yield_usdc,
+       last_synced_value_usdc = excluded.last_synced_value_usdc,
+       updated_at = excluded.updated_at`,
+    phone,
+    extras?.sharesStroops ?? bUsdcBalance,
+    bUsdcBalance,
+    extras?.accruedYieldUsdc ?? "0",
+    lastSyncedValueUsdc,
+    nowIso()
+  );
 }
 
 export async function listYieldPositions(): Promise<StoredYieldPosition[]> {
-  const rows = getDb()
-    .prepare("SELECT * FROM yield_positions")
-    .all() as YieldRow[];
+  const rows = await dbAll<YieldRow>("SELECT * FROM yield_positions");
   return rows.map(mapYield);
 }
 
@@ -293,21 +286,20 @@ export function positionSharesStroops(row: StoredYieldPosition): bigint {
 }
 
 export async function listPendingSep24(): Promise<StoredTransaction[]> {
-  const rows = getDb()
-    .prepare(
-      `SELECT * FROM transactions
-       WHERE type = 'withdraw_sep24'
-         AND (status = 'pending' OR status = 'pending_user_transfer_start')`
-    )
-    .all() as TxRow[];
+  const rows = await dbAll<TxRow>(
+    `SELECT * FROM transactions
+     WHERE type = 'withdraw_sep24'
+       AND (status = 'pending' OR status = 'pending_user_transfer_start')`
+  );
   return rows.map(mapTx);
 }
 
 export async function findYieldPosition(
   phone: string
 ): Promise<StoredYieldPosition | null> {
-  const row = getDb()
-    .prepare("SELECT * FROM yield_positions WHERE phone = ?")
-    .get(phone) as YieldRow | undefined;
+  const row = await dbGet<YieldRow>(
+    "SELECT * FROM yield_positions WHERE phone = ?",
+    phone
+  );
   return row ? mapYield(row) : null;
 }

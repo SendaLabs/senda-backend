@@ -1,4 +1,4 @@
-import { getDb } from "../db/sqlite";
+import { dbGet, dbRun } from "../db/client";
 import { normalizePhoneIdentity } from "./identity.service";
 
 type PendingAck = {
@@ -13,10 +13,13 @@ type AckRow = {
   created_at: string;
 };
 
-export function getPendingAck(phone: string): PendingAck | undefined {
-  const row = getDb()
-    .prepare("SELECT * FROM pending_acks WHERE phone = ?")
-    .get(normalizePhoneIdentity(phone)) as AckRow | undefined;
+export async function getPendingAck(
+  phone: string
+): Promise<PendingAck | undefined> {
+  const row = await dbGet<AckRow>(
+    "SELECT * FROM pending_acks WHERE phone = ?",
+    normalizePhoneIdentity(phone)
+  );
   if (!row) {
     return undefined;
   }
@@ -25,17 +28,19 @@ export function getPendingAck(phone: string): PendingAck | undefined {
 
 export async function savePendingAck(phone: string, text: string): Promise<void> {
   const key = normalizePhoneIdentity(phone);
-  getDb()
-    .prepare(
-      `INSERT INTO pending_acks (phone, text, created_at)
-       VALUES (?, ?, ?)
-       ON CONFLICT(phone) DO UPDATE SET text = excluded.text, created_at = excluded.created_at`
-    )
-    .run(key, text, new Date().toISOString());
+  await dbRun(
+    `INSERT INTO pending_acks (phone, text, created_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(phone) DO UPDATE SET text = excluded.text, created_at = excluded.created_at`,
+    key,
+    text,
+    new Date().toISOString()
+  );
 }
 
 export async function clearPendingAck(phone: string): Promise<void> {
-  getDb()
-    .prepare("DELETE FROM pending_acks WHERE phone = ?")
-    .run(normalizePhoneIdentity(phone));
+  await dbRun(
+    "DELETE FROM pending_acks WHERE phone = ?",
+    normalizePhoneIdentity(phone)
+  );
 }

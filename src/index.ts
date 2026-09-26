@@ -29,7 +29,8 @@ import {
   safeReconcileYieldDaily,
   safeSyncYieldAccounting,
 } from "./yield/yield-accounting-service";
-import { getDb, sqliteFilePath } from "./db/sqlite";
+import { ensureDatabase, persistLabel, usesPostgres } from "./db/client";
+import { sqliteFilePath } from "./db/sqlite";
 import { assertNetworkConsistency } from "./services/stellar.service";
 import {
   logSafeError,
@@ -98,8 +99,8 @@ app.get("/ready", (_req: Request, res: Response) => {
       process.env.WELCOME_SKIP_VIDEO?.trim() === "true" ? "skipped" : "enabled",
     blendUtilization: getLastBlendUtilization(),
     yieldDepositsBlocked: areYieldDepositsBlocked(),
-    persist: "sqlite",
-    sqlite: sqliteFilePath(),
+    persist: persistLabel(),
+    sqlite: usesPostgres() ? undefined : sqliteFilePath(),
   };
   const ok =
     checks.whatsappToken &&
@@ -176,9 +177,9 @@ type IncomingWhatsAppMessage =
     }
   | { kind: "unsupported"; from: string; name: string; messageId: string };
 
-function extractIncomingWhatsAppMessages(
+async function extractIncomingWhatsAppMessages(
   payload: WhatsAppWebhookPayload
-): IncomingWhatsAppMessage[] {
+): Promise<IncomingWhatsAppMessage[]> {
   const incoming: IncomingWhatsAppMessage[] = [];
 
   for (const entry of payload.entry ?? []) {
@@ -212,7 +213,7 @@ function extractIncomingWhatsAppMessages(
           continue;
         }
 
-        const claim = claimProcessedMessage(messageId);
+        const claim = await claimProcessedMessage(messageId);
         if (claim === "duplicate") {
           console.log(`Webhook: mensaje duplicado ${messageId} ignorado`);
           continue;
@@ -331,7 +332,7 @@ async function handleOneIncoming(incoming: IncomingWhatsAppMessage): Promise<voi
 }
 
 async function processIncomingWebhook(payload: WhatsAppWebhookPayload): Promise<void> {
-  const incoming = extractIncomingWhatsAppMessages(payload);
+  const incoming = await extractIncomingWhatsAppMessages(payload);
   console.log(`Webhook: ${incoming.length} mensaje(s) a procesar`);
   for (const message of incoming) {
     await handleOneIncoming(message);
@@ -359,9 +360,16 @@ try {
 }
 
 app.listen(port, () => {
-  getDb();
-  console.log(`Senda backend escuchando en http://localhost:${port}`);
-  console.log(`SQLite: ${sqliteFilePath()}`);
+  void ensureDatabase()
+    .then(() => {
+      console.log(`Senda backend escuchando en http://localhost:${port}`);
+      console.log(`Persistencia: ${persistLabel()}`);
+    })
+    .catch((error) => {
+      console.error(
+        error instanceof Error ? error.message : "No se pudo abrir la base"
+      );
+    });
   void reconcileOfframpOrders().catch((error) => {
     console.error(
       error instanceof Error ? error.message : "No se pudieron reconciliar retiros"

@@ -6,6 +6,8 @@ import { after, test } from "node:test";
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "senda-guard-"));
 process.env.SENDA_DATA_DIR = dataDir;
+delete process.env.DATABASE_URL;
+delete process.env.SUPABASE_DB_URL;
 
 const {
   beginCreditClaim,

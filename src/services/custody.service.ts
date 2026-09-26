@@ -46,7 +46,7 @@ async function resolveSecret(
     return derived;
   }
 
-  const stored = getWalletByPhone(phone);
+  const stored = await getWalletByPhone(phone);
   if (!stored || stored.publicKey !== record.account || !stored.secretKey) {
     throw new Error("No se pudo recuperar la clave de la cuenta legado");
   }
@@ -70,14 +70,14 @@ export async function resolveCustodialAccount(phone: string): Promise<{
   identity: Sep30IdentityRecord;
   recovered: boolean;
 }> {
-  const existingIdentity = getIdentityRecord(phone);
+  const existingIdentity = await getIdentityRecord(phone);
   if (existingIdentity) {
     const account = await resolveSecret(phone, existingIdentity);
     const identity = (await markIdentityRecovered(phone)) ?? existingIdentity;
     return { account, identity, recovered: true };
   }
 
-  const legacy = getWalletByPhone(phone);
+  const legacy = await getWalletByPhone(phone);
   if (legacy?.secretKey) {
     const identity = await registerCustodialAccount(phone, legacy, "legacy");
     return { account: legacy, identity, recovered: true };

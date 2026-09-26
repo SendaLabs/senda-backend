@@ -3,7 +3,7 @@ import path from "path";
 import { DatabaseSync } from "node:sqlite";
 import { getDataDir } from "../services/data-dir";
 
-const SCHEMA = `
+export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
   phone TEXT PRIMARY KEY,
   privy_user_id TEXT,
@@ -115,11 +115,6 @@ let cached: Cached | null = null;
 
 export function sqliteFilePath(): string {
   const configured = process.env.DATABASE_URL?.trim();
-  if (configured && !configured.startsWith("file:")) {
-    throw new Error(
-      "Senda usa SQLite. DATABASE_URL tiene que ser file:... o dejalo vacío."
-    );
-  }
   if (configured?.startsWith("file:")) {
     const raw = configured.slice("file:".length).replace(/^\.\.\//, "");
     return path.isAbsolute(raw)

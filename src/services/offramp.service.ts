@@ -115,7 +115,9 @@ export async function createCashWithdrawal(
   }
 }
 
-export function getOpenCashWithdrawal(phone: string): OfframpOrder | undefined {
+export async function getOpenCashWithdrawal(
+  phone: string
+): Promise<OfframpOrder | undefined> {
   return getLatestPendingOrder(phone);
 }
 
@@ -126,7 +128,7 @@ export async function getSpendableUsdc(phone: string): Promise<string> {
 }
 
 export async function reconcileOfframpOrders(): Promise<void> {
-  for (const order of listOrdersNeedingReconcile()) {
+  for (const order of await listOrdersNeedingReconcile()) {
     if (order.txHash) {
       await saveOfframpOrder({ ...order, status: "pending_pickup" });
       continue;

@@ -6,6 +6,8 @@ import { test } from "node:test";
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "senda-privy-acc-"));
 process.env.SENDA_DATA_DIR = dataDir;
+delete process.env.DATABASE_URL;
+delete process.env.SUPABASE_DB_URL;
 
 const { upsertPrivyUser } = require("../db/users.repository") as typeof import("../db/users.repository");
 const {

@@ -10,22 +10,23 @@ import {
   SENDA_MAX_USDC_PER_TRANSACTION,
 } from "./spend-policy";
 
-test("el invite de alta manda el link corto y pide el mismo WhatsApp", () => {
-  const text = buildSetupInvite("Ana", "http://localhost:3000/s/abc");
-  assert.match(text, /http:\/\/localhost:3000\/s\/abc/);
+test("el invite de alta no pega URL de Render y pide el email", () => {
+  const text = buildSetupInvite("Ana");
+  assert.doesNotMatch(text, /onrender\.com|https?:\/\//i);
+  assert.match(text, /Abrir mi cuenta/);
   assert.match(text, /email/);
   assert.match(text, /Ana/);
-  assert.match(text, /ya podés volver/);
   assert.match(text, /creada con éxito/);
 });
 
 test("el invite en inglés no saca el texto en español por defecto", () => {
-  const en = buildSetupInvite("Ana", "http://localhost:3000/s/abc", "en");
-  assert.match(en, /http:\/\/localhost:3000\/s\/abc/);
+  const en = buildSetupInvite("Ana", "en");
+  assert.doesNotMatch(en, /onrender\.com|https?:\/\//i);
+  assert.match(en, /Open my account/);
   assert.match(en, /email/);
-  assert.match(en, /When you see/);
-  const es = buildSetupInvite("Ana", "http://localhost:3000/s/abc");
-  assert.match(es, /ya podés volver/);
+  assert.match(en, /WhatsApp opens again/);
+  const es = buildSetupInvite("Ana");
+  assert.match(es, /Abrir mi cuenta/);
 });
 
 test("el aviso post-alta confirma y agradece", () => {

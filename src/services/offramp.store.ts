@@ -1,4 +1,4 @@
-import { getDb } from "../db/sqlite";
+import { dbAll, dbRun } from "../db/client";
 import {
   decryptString,
   encryptString,
@@ -67,58 +67,57 @@ function mapOrder(row: OrderRow): OfframpOrder {
 }
 
 export async function saveOfframpOrder(order: OfframpOrder): Promise<OfframpOrder> {
-  getDb()
-    .prepare(
-      `INSERT INTO offramp_orders
-       (id, phone, amount_usdc, partner, partner_label, pickup_code, location_hint, expires_at, status, tx_hash, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         phone = excluded.phone,
-         amount_usdc = excluded.amount_usdc,
-         partner = excluded.partner,
-         partner_label = excluded.partner_label,
-         pickup_code = excluded.pickup_code,
-         location_hint = excluded.location_hint,
-         expires_at = excluded.expires_at,
-         status = excluded.status,
-         tx_hash = excluded.tx_hash`
-    )
-    .run(
-      order.id,
-      order.phone,
-      order.amountUsdc,
-      order.partner,
-      order.partnerLabel,
-      encodePickup(order.pickupCode),
-      order.locationHint,
-      order.expiresAt,
-      order.status,
-      order.txHash,
-      order.createdAt
-    );
+  await dbRun(
+    `INSERT INTO offramp_orders
+     (id, phone, amount_usdc, partner, partner_label, pickup_code, location_hint, expires_at, status, tx_hash, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       phone = excluded.phone,
+       amount_usdc = excluded.amount_usdc,
+       partner = excluded.partner,
+       partner_label = excluded.partner_label,
+       pickup_code = excluded.pickup_code,
+       location_hint = excluded.location_hint,
+       expires_at = excluded.expires_at,
+       status = excluded.status,
+       tx_hash = excluded.tx_hash`,
+    order.id,
+    order.phone,
+    order.amountUsdc,
+    order.partner,
+    order.partnerLabel,
+    encodePickup(order.pickupCode),
+    order.locationHint,
+    order.expiresAt,
+    order.status,
+    order.txHash,
+    order.createdAt
+  );
   return { ...order, pickupCode: decodePickup(order.pickupCode) };
 }
 
-export function listOfframpOrders(phone: string): OfframpOrder[] {
-  const rows = getDb()
-    .prepare("SELECT * FROM offramp_orders WHERE phone = ? ORDER BY created_at DESC")
-    .all(phone) as OrderRow[];
+export async function listOfframpOrders(phone: string): Promise<OfframpOrder[]> {
+  const rows = await dbAll<OrderRow>(
+    "SELECT * FROM offramp_orders WHERE phone = ? ORDER BY created_at DESC",
+    phone
+  );
   return rows.map(mapOrder);
 }
 
-export function getLatestPendingOrder(phone: string): OfframpOrder | undefined {
-  return listOfframpOrders(phone).find(
+export async function getLatestPendingOrder(
+  phone: string
+): Promise<OfframpOrder | undefined> {
+  const orders = await listOfframpOrders(phone);
+  return orders.find(
     (order) =>
       order.status === "pending_pickup" || order.status === "pending_lock"
   );
 }
 
-export function listOrdersNeedingReconcile(): OfframpOrder[] {
-  const rows = getDb()
-    .prepare(
-      `SELECT * FROM offramp_orders
-       WHERE status = 'pending_lock' OR status = 'needs_reconcile'`
-    )
-    .all() as OrderRow[];
+export async function listOrdersNeedingReconcile(): Promise<OfframpOrder[]> {
+  const rows = await dbAll<OrderRow>(
+    `SELECT * FROM offramp_orders
+     WHERE status = 'pending_lock' OR status = 'needs_reconcile'`
+  );
   return rows.map(mapOrder);
 }

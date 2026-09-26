@@ -52,21 +52,29 @@ type WhatsAppOutgoingPayload = {
   recipient_type?: "individual";
   to?: string;
   recipient?: string;
-  type: "text" | "video" | "image";
+  type: "text" | "video" | "image" | "interactive";
   text?: { body: string };
   video?: { link?: string; id?: string; caption?: string };
   image?: { link?: string; id?: string; caption?: string };
+  interactive?: {
+    type: "cta_url";
+    body: { text: string };
+    action: {
+      name: "cta_url";
+      parameters: { display_text: string; url: string };
+    };
+  };
 };
 
 export class WhatsAppSendError extends Error {
   readonly status?: number;
   readonly code?: number;
   readonly to: string;
-  readonly kind: "text" | "video" | "image";
+  readonly kind: "text" | "video" | "image" | "interactive";
 
   constructor(params: {
     to: string;
-    kind: "text" | "video" | "image";
+    kind: "text" | "video" | "image" | "interactive";
     status?: number;
     code?: number;
     message: string;
@@ -260,6 +268,30 @@ export async function sendWhatsAppMessage(
     to,
     type: "text",
     text: { body },
+  });
+}
+
+export async function sendWhatsAppCtaUrl(
+  to: string,
+  body: string,
+  displayText: string,
+  url: string
+): Promise<WhatsAppMessageResponse> {
+  return postWhatsAppMessage({
+    messaging_product: "whatsapp",
+    to,
+    type: "interactive",
+    interactive: {
+      type: "cta_url",
+      body: { text: body },
+      action: {
+        name: "cta_url",
+        parameters: {
+          display_text: displayText.slice(0, 20),
+          url,
+        },
+      },
+    },
   });
 }
 

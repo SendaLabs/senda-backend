@@ -93,6 +93,16 @@ function SetupInner({
     };
   }, [api, initial.error, initial.valid, token]);
 
+  useEffect(() => {
+    if (screen !== "done" || !wa || wa === "https://wa.me/") {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      window.location.href = wa;
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [screen, wa]);
+
   async function finishOnboarding() {
     if (!user || busy) {
       return;

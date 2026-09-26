@@ -44,6 +44,7 @@ import { maybeInviteWalletSetup } from "../wallet/wallet-setup";
 import {
   ConversationStep,
   getSession,
+  hydrateSession,
   setSession,
   type ConversationSession,
 } from "./session.service";
@@ -67,8 +68,8 @@ import {
   getUserOnChainState,
 } from "./stellar.service";
 import { transferUsdcFromWallet } from "./usdc.service";
-import { cobroChatCaption } from "../qr/cobro-copy";
-import { cobroPublicUrl, extractCobroToken, issueCobro, peekCobro } from "../qr/cobro.store";
+import { cobroChatCaption, cobroWhatsAppShareUrl } from "../qr/cobro-copy";
+import { extractCobroToken, issueCobro, peekCobro } from "../qr/cobro.store";
 import {
   buildSendaCobroUri,
   parseSep7PayUri,
@@ -93,6 +94,7 @@ import {
 import { isPositiveUsdcAmount } from "../yield/yield-book";
 import {
   logSafeError,
+  sendWhatsAppCtaUrl,
   sendWhatsAppMessage,
   sendWhatsAppImage,
   sendWhatsAppVideo,
@@ -417,7 +419,7 @@ async function handleBalanceQuery(to: string, name: string): Promise<void> {
 async function handleWithdrawStatus(to: string, name: string): Promise<void> {
   const locale = localeOf(to);
   saveSession(to, name);
-  const order = getOpenCashWithdrawal(to);
+  const order = await getOpenCashWithdrawal(to);
   if (!order) {
     await sendWhatsAppMessage(to, withdrawNoneText(locale));
     return;
@@ -582,7 +584,7 @@ async function sendCobroLink(
     destination: user.publicKey,
     amount,
   });
-  const shareUrl = cobroPublicUrl(cobro.token);
+  const shareUrl = cobroWhatsAppShareUrl(cobro.token);
   const png = await renderSep7QrPng(shareUrl);
 
   saveSession(to, name);
@@ -595,10 +597,10 @@ async function sendCobroLink(
   await sendWhatsAppMessage(to, shareUrl);
 }
 
-function resolveCobroPayment(text: string) {
+async function resolveCobroPayment(text: string) {
   const token = extractCobroToken(text);
   if (token) {
-    const stored = peekCobro(token);
+    const stored = await peekCobro(token);
     if (!stored) {
       return null;
     }
@@ -614,7 +616,7 @@ async function paySep7Link(
   amountOverride?: number
 ): Promise<void> {
   const locale = localeOf(to);
-  const parsed = resolveCobroPayment(text);
+  const parsed = await resolveCobroPayment(text);
   if (!parsed) {
     await sendWhatsAppMessage(to, cobroBadLinkText(locale));
     return;
@@ -785,18 +787,29 @@ async function handleIncomingWhatsAppMessageInner(
   name: string,
   text: string
 ): Promise<void> {
+  await hydrateSession(from);
   const locale = rememberLocale(from, text, name);
   const setupInvite = await maybeInviteWalletSetup(from, name, locale);
   if (setupInvite) {
     saveSession(from, name, { locale });
     await sendWelcomeVideoOrCaption(from, welcomeVideoCaption(name, locale));
     await sleep(2800);
-    await sendWhatsAppMessage(from, setupInvite);
+    try {
+      await sendWhatsAppCtaUrl(
+        from,
+        setupInvite.text,
+        setupInvite.button,
+        setupInvite.url
+      );
+    } catch (error) {
+      logSafeError("Alta: no pude mandar el botón de WhatsApp", error);
+      await sendWhatsAppMessage(from, setupInvite.text);
+    }
     return;
   }
 
   if (isReceiptQuery(text)) {
-    const ack = getPendingAck(from);
+    const ack = await getPendingAck(from);
     if (ack) {
       await sendWhatsAppMessage(from, ack.text);
       return;

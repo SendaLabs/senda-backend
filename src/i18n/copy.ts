@@ -398,8 +398,8 @@ export function cobroChatCaptionText(locale: Locale, amountLabel?: string): stri
         : "This is your charge.";
     return [
       head,
-      "Send this photo or the link below to whoever should pay you.",
-      "If they scan the code, a Senda page opens. If they also use the chat, they can paste the link.",
+      "Send this photo or the WhatsApp link below to whoever should pay you.",
+      "If they scan the code, WhatsApp opens. They send that message to Senda and that's it.",
     ].join("\n");
   }
   const head =
@@ -408,32 +408,32 @@ export function cobroChatCaptionText(locale: Locale, amountLabel?: string): stri
       : "Este es tu cobro.";
   return [
     head,
-    "Mandale esta foto o el enlace de abajo a quien te tiene que pagar.",
-    "Si escanean el código, se abre una página de Senda. Si también usan el chat, que peguen el enlace.",
+    "Mandale esta foto o el enlace de WhatsApp de abajo a quien te tiene que pagar.",
+    "Si escanean el código, se abre WhatsApp. Mandan ese mensaje a Senda y listo.",
   ].join("\n");
 }
 
-export function buildSetupInviteText(name: string, url: string, locale: Locale): string {
+export function setupInviteButton(locale: Locale): string {
+  return locale === "en" ? "Open my account" : "Abrir mi cuenta";
+}
+
+export function buildSetupInviteText(name: string, locale: Locale): string {
   const first = name.trim().split(/\s+/)[0] || (locale === "en" ? "hey" : "hola");
   if (locale === "en") {
     return [
       `${first}, to get started we'll open your account. It's a one-time step and takes about a minute.`,
       "",
-      "Tap this link (it's from Senda and lasts 30 minutes):",
-      url,
-      "",
+      `Tap «${setupInviteButton(locale)}». It's from Senda and lasts 30 minutes.`,
       "Sign in with your email. You'll get a code, create your account, and you're done.",
-      'When you see "Done", you can come back: your account will be created.',
+      'When you see "Done", WhatsApp opens again: your account will be created.',
     ].join("\n");
   }
   return [
     `${first}, para empezar vamos a abrir tu cuenta. Es una sola vez y te lleva un minutito.`,
     "",
-    "Tocá este enlace (es de Senda y dura 30 minutos):",
-    url,
-    "",
+    `Tocá «${setupInviteButton(locale)}». Es de Senda y dura 30 minutos.`,
     "Entrá con tu email. Te llega un código al correo, creás tu cuenta y listo.",
-    "Cuando veas «Listo», ya podés volver: tu cuenta va a estar creada con éxito.",
+    "Cuando veas «Listo», volvés al chat: tu cuenta va a estar creada con éxito.",
   ].join("\n");
 }
 

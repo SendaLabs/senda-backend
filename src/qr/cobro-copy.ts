@@ -16,8 +16,8 @@ export function cobroChatCaption(
         : "This is your charge.";
     return [
       head,
-      "Send this photo or the link below to whoever should pay you.",
-      "If they scan the code, a Senda page opens. If they also use the chat, they can paste the link.",
+      "Send this photo or the WhatsApp link below to whoever should pay you.",
+      "If they scan the code, WhatsApp opens. They send that message to Senda and that's it.",
     ].join("\n");
   }
   const head =
@@ -26,8 +26,8 @@ export function cobroChatCaption(
       : "Este es tu cobro.";
   return [
     head,
-    "Mandale esta foto o el enlace de abajo a quien te tiene que pagar.",
-    "Si escanean el código, se abre una página de Senda. Si también usan el chat, que peguen el enlace.",
+    "Mandale esta foto o el enlace de WhatsApp de abajo a quien te tiene que pagar.",
+    "Si escanean el código, se abre WhatsApp. Mandan ese mensaje a Senda y listo.",
   ].join("\n");
 }
 
@@ -46,4 +46,8 @@ export function cobroWhatsAppPayUrl(shareUrl: string): string {
   const digits = (process.env.WHATSAPP_CLICK_TO_CHAT || "").replace(/\D/g, "");
   const base = digits ? `https://wa.me/${digits}` : "https://wa.me/";
   return `${base}?text=${encodeURIComponent(shareUrl)}`;
+}
+
+export function cobroWhatsAppShareUrl(token: string): string {
+  return cobroWhatsAppPayUrl(`/c/${token}`);
 }

@@ -5,6 +5,7 @@ import {
   cobroChatCaption,
   cobroWalletMsg,
   cobroWhatsAppPayUrl,
+  cobroWhatsAppShareUrl,
   looksLikeLabReceiveCopy,
 } from "./cobro-copy";
 import { extractCobroToken } from "./cobro.store";
@@ -58,21 +59,27 @@ test("el URI de cobro lleva un mensaje en español, no el default en inglés", (
 test("el boton Pagar abre WhatsApp, no un enlace web+stellar", () => {
   const previous = process.env.WHATSAPP_CLICK_TO_CHAT;
   process.env.WHATSAPP_CLICK_TO_CHAT = "15556186469";
-  const url = cobroWhatsAppPayUrl("https://senda-backend-2r5k.onrender.com/c/aabbcc");
+  const url = cobroWhatsAppShareUrl("aabbcc");
   assert.match(url, /^https:\/\/wa\.me\/15556186469\?text=/);
+  assert.doesNotMatch(url, /onrender\.com/);
   assert.equal(/web\+stellar/i.test(url), false);
+  assert.equal(cobroWhatsAppPayUrl("/c/aabbcc").includes("wa.me"), true);
   if (previous === undefined) delete process.env.WHATSAPP_CLICK_TO_CHAT;
   else process.env.WHATSAPP_CLICK_TO_CHAT = previous;
 });
 
 test("reconoce el enlace corto de cobro", () => {
   assert.equal(
-    extractCobroToken("https://senda-backend.onrender.com/c/aabbccddeeff00112233445566778899"),
+    extractCobroToken("pagame /c/aabbccddeeff00112233445566778899"),
     "aabbccddeeff00112233445566778899"
   );
 });
 
 test("el QR puede guardar un enlace https que la cámara sí lee", async () => {
-  const png = await renderSep7QrPng("https://senda-backend-2r5k.onrender.com/c/aabbccdd");
+  const previous = process.env.WHATSAPP_CLICK_TO_CHAT;
+  process.env.WHATSAPP_CLICK_TO_CHAT = "15556186469";
+  const png = await renderSep7QrPng(cobroWhatsAppShareUrl("aabbccdd"));
   assert.equal(png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])), true);
+  if (previous === undefined) delete process.env.WHATSAPP_CLICK_TO_CHAT;
+  else process.env.WHATSAPP_CLICK_TO_CHAT = previous;
 });

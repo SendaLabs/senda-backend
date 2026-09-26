@@ -41,12 +41,14 @@ test("la bienvenida y el menú existen en los dos idiomas", () => {
 });
 
 test("el alta Privy también tiene inglés sin sacar el español", () => {
-  const es = buildSetupInviteText("Ana", "http://localhost/s/abc", "es");
-  const en = buildSetupInviteText("Ana", "http://localhost/s/abc", "en");
+  const es = buildSetupInviteText("Ana", "es");
+  const en = buildSetupInviteText("Ana", "en");
   assert.match(es, /email/);
-  assert.match(es, /ya podés volver/);
+  assert.match(es, /Abrir mi cuenta/);
+  assert.match(es, /volvés al chat/);
+  assert.doesNotMatch(es, /onrender\.com|https?:\/\//i);
   assert.match(en, /email/);
-  assert.match(en, /When you see/);
+  assert.match(en, /Open my account/);
   assert.match(buildSetupReadyText("en"), /Your account is all set/);
   assert.match(buildSetupReadyText("es"), /creada con éxito/);
 });

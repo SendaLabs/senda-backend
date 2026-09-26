@@ -1,5 +1,5 @@
 import type { Sep30IdentityRecord } from "./account.types";
-import { getDb } from "../db/sqlite";
+import { dbGet, dbRun } from "../db/client";
 import { identityKey } from "./identity.service";
 
 type IdentityRow = {
@@ -25,12 +25,13 @@ function mapIdentity(row: IdentityRow): Sep30IdentityRecord {
   };
 }
 
-export function getIdentityRecord(
+export async function getIdentityRecord(
   phone: string
-): Sep30IdentityRecord | undefined {
-  const row = getDb()
-    .prepare("SELECT * FROM identities WHERE phone = ?")
-    .get(identityKey(phone)) as IdentityRow | undefined;
+): Promise<Sep30IdentityRecord | undefined> {
+  const row = await dbGet<IdentityRow>(
+    "SELECT * FROM identities WHERE phone = ?",
+    identityKey(phone)
+  );
   return row ? mapIdentity(row) : undefined;
 }
 
@@ -39,36 +40,33 @@ export async function saveIdentityRecord(
   record: Sep30IdentityRecord
 ): Promise<Sep30IdentityRecord> {
   const key = identityKey(phone);
-  getDb()
-    .prepare(
-      `INSERT INTO identities
-       (phone, account, passkey_id, identity_json, signers_json, created_at, last_recovered_at, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(phone) DO UPDATE SET
-         account = excluded.account,
-         passkey_id = excluded.passkey_id,
-         identity_json = excluded.identity_json,
-         signers_json = excluded.signers_json,
-         last_recovered_at = excluded.last_recovered_at,
-         source = excluded.source`
-    )
-    .run(
-      key,
-      record.account,
-      record.passkeyId,
-      JSON.stringify(record.identity),
-      JSON.stringify(record.signers),
-      record.createdAt,
-      record.lastRecoveredAt ?? null,
-      record.source
-    );
+  await dbRun(
+    `INSERT INTO identities
+     (phone, account, passkey_id, identity_json, signers_json, created_at, last_recovered_at, source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(phone) DO UPDATE SET
+       account = excluded.account,
+       passkey_id = excluded.passkey_id,
+       identity_json = excluded.identity_json,
+       signers_json = excluded.signers_json,
+       last_recovered_at = excluded.last_recovered_at,
+       source = excluded.source`,
+    key,
+    record.account,
+    record.passkeyId,
+    JSON.stringify(record.identity),
+    JSON.stringify(record.signers),
+    record.createdAt,
+    record.lastRecoveredAt ?? null,
+    record.source
+  );
   return record;
 }
 
 export async function markIdentityRecovered(
   phone: string
 ): Promise<Sep30IdentityRecord | undefined> {
-  const current = getIdentityRecord(phone);
+  const current = await getIdentityRecord(phone);
   if (!current) {
     return undefined;
   }

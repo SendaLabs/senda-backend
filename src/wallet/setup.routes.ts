@@ -8,7 +8,7 @@ import {
   peekSetupToken,
   setupFullUrl,
 } from "./setup-token.store";
-import { getSession } from "../services/session.service";
+import { getSession, hydrateSession } from "../services/session.service";
 import { buildSetupReadyMessage } from "./wallet-setup";
 
 const STELLAR_PUBLIC_KEY = /^G[A-Z2-7]{55}$/;
@@ -52,9 +52,9 @@ export function mountSetupRoutes(app: Express): void {
     res.sendFile(path.join(process.cwd(), "src", "public", "setup.html"));
   });
 
-  app.get("/s/:token", (req: Request, res: Response) => {
+  app.get("/s/:token", async (req: Request, res: Response) => {
     const token = readString(req.params.token);
-    if (!peekSetupToken(token)) {
+    if (!(await peekSetupToken(token))) {
       res
         .status(404)
         .type("html")
@@ -66,8 +66,8 @@ export function mountSetupRoutes(app: Express): void {
     res.redirect(302, setupFullUrl(token));
   });
 
-  app.get("/api/setup/:token", (req: Request, res: Response) => {
-    const row = peekSetupToken(readString(req.params.token));
+  app.get("/api/setup/:token", async (req: Request, res: Response) => {
+    const row = await peekSetupToken(readString(req.params.token));
     if (!row) {
       res.status(404).json({ valid: false });
       return;
@@ -95,12 +95,13 @@ export function mountSetupRoutes(app: Express): void {
     }
 
     try {
-      const row = peekSetupToken(token);
+      const row = await peekSetupToken(token);
       if (!row) {
         throw new Error("Ese enlace de alta ya no sirve. Pedime uno nuevo por WhatsApp.");
       }
       await upsertPrivyUser(row.phone, walletId, walletAddress, privyUserId);
       await consumeSetupToken(token);
+      await hydrateSession(row.phone);
       res.json({
         ok: true,
         phoneHint: maskPhone(row.phone),

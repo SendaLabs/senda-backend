@@ -116,9 +116,9 @@ Lista completa: `.env.example`. Nunca commitear `.env`.
 
 ## Persistencia
 
-Runtime: SQLite en `data/senda.db` (o `SENDA_DATA_DIR/senda.db`). Si quedan JSON viejos, se importan una vez al arrancar. `prisma/schema.prisma` documenta el modelo.
+En Render (plan free, sin disco) seteá `DATABASE_URL` con la URI de Supabase (Transaction pooler, puerto 6543, `sslmode=require`). Local y tests siguen en SQLite (`data/senda.db` o `SENDA_DATA_DIR`). Si quedan JSON viejos, SQLite los importa una vez al arrancar.
 
-El disco de Render es efímero. Lo que está rindiendo se reconstruye desde Horizon (pagos USDC del usuario a tesorería). Un crédito de «mandar» no se resta; solo baja un retiro con memo `senda-y-out`. Para no perder sesiones ni el mapeo Privy, montá un disco y seteá `SENDA_DATA_DIR`.
+El yield se reconstruye desde Horizon (pagos USDC del usuario a tesorería). Un crédito de «mandar» no se resta; solo baja un retiro con memo `senda-y-out`.
 
 ## Contrato `SendaContract`
 
@@ -141,7 +141,7 @@ Laboratorio (`ping`, `credit`, `balance`). El saldo que ve el usuario es el **SA
 3. Webhook Meta: `https://<servicio>/webhook`
 4. Chequear `GET /ready`
 
-Disco efímero: con `CUSTODY_MASTER_SECRET` fijo se rederiva la cuenta SEP-30. Las wallets Privy se crean en `/web-setup` y se guardan en SQLite. El yield se rearma desde Horizon si el `.db` se pierde.
+Sin `DATABASE_URL` de Supabase se pierde el mapeo Privy y los tokens de alta en cada redeploy. Con `CUSTODY_MASTER_SECRET` fijo se rederiva la cuenta SEP-30. El yield se rearma desde Horizon.
 
 ## Seguridad
 
