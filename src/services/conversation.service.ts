@@ -40,11 +40,12 @@ import {
   yieldWithdrawReadyText,
 } from "../i18n/copy";
 import { inferLocale, isGreeting, type Locale } from "../i18n/locale";
-import { maybeInviteWalletSetup } from "../wallet/wallet-setup";
+import { maybeInviteWalletSetup, type SetupInvite } from "../wallet/wallet-setup";
 import {
   ConversationStep,
   getSession,
   hydrateSession,
+  isMenuRequest,
   setSession,
   type ConversationSession,
 } from "./session.service";
@@ -192,7 +193,19 @@ async function sendWelcomeVideoOrCaption(
   }
 }
 
-export async function sendWelcomeFlow(
+export async function sendSetupInviteSafe(
+  to: string,
+  invite: SetupInvite
+): Promise<void> {
+  try {
+    await sendWhatsAppCtaUrl(to, invite.text, invite.button, invite.url);
+  } catch (error) {
+    logSafeError("Alta: no pude mandar el botón de WhatsApp", error);
+    await sendWhatsAppMessage(to, `${invite.text}\n\n${invite.url}`);
+  }
+}
+
+async function sendWelcomeFlow(
   to: string,
   name: string,
   locale: Locale = "es"
@@ -791,20 +804,13 @@ async function handleIncomingWhatsAppMessageInner(
   const locale = rememberLocale(from, text, name);
   const setupInvite = await maybeInviteWalletSetup(from, name, locale);
   if (setupInvite) {
+    const firstTouch = !getSession(from);
     saveSession(from, name, { locale });
-    await sendWelcomeVideoOrCaption(from, welcomeVideoCaption(name, locale));
-    await sleep(2800);
-    try {
-      await sendWhatsAppCtaUrl(
-        from,
-        setupInvite.text,
-        setupInvite.button,
-        setupInvite.url
-      );
-    } catch (error) {
-      logSafeError("Alta: no pude mandar el botón de WhatsApp", error);
-      await sendWhatsAppMessage(from, setupInvite.text);
+    if (firstTouch || isGreeting(text) || isMenuRequest(text)) {
+      await sendWelcomeVideoOrCaption(from, welcomeVideoCaption(name, locale));
+      await sleep(2800);
     }
+    await sendSetupInviteSafe(from, setupInvite);
     return;
   }
 

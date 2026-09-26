@@ -108,8 +108,7 @@ app.get("/ready", (_req: Request, res: Response) => {
     checks.appSecret &&
     checks.stellarSecret &&
     checks.custodyMaster &&
-    checks.fileVault &&
-    checks.offrampVault;
+    checks.fileVault;
   res.status(ok ? 200 : 503).json({ status: ok ? "ready" : "missing_env", checks });
 });
 
