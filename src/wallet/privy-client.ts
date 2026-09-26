@@ -47,7 +47,10 @@ export async function signStellarHash(
     },
   });
 
-  const signature = signed.signature;
+  const signature =
+    typeof signed === "object" && signed && "signature" in signed
+      ? (signed as { signature?: string }).signature
+      : undefined;
   if (!signature) {
     throw new Error("Privy no devolvió firma");
   }

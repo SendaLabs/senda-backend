@@ -12,16 +12,15 @@ export async function claimProcessedMessage(
   const now = Date.now();
   await dbRun("DELETE FROM processed_messages WHERE seen_at < ?", now - MESSAGE_TTL_MS);
 
-  const existing = await dbGet<{ id: string }>(
-    "SELECT id FROM processed_messages WHERE id = ?",
-    id
+  // Atomic claim: concurrent webhook deliveries must not both process.
+  const inserted = await dbGet<{ id: string }>(
+    `INSERT INTO processed_messages (id, seen_at) VALUES (?, ?)
+     ON CONFLICT(id) DO NOTHING
+     RETURNING id`,
+    id,
+    now
   );
-  if (existing) {
-    return "duplicate";
-  }
-
-  await dbRun("INSERT INTO processed_messages (id, seen_at) VALUES (?, ?)", id, now);
-  return "claimed";
+  return inserted ? "claimed" : "duplicate";
 }
 
 export async function claimProcessedMessageAsync(

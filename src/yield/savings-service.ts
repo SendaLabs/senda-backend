@@ -45,6 +45,31 @@ export class YieldDepositsBlockedError extends Error {
   }
 }
 
+export class BlendOperationError extends Error {
+  constructor(action: "deposit" | "withdraw") {
+    super(
+      action === "deposit"
+        ? "No pude poner tu plata a rendir en el pool. Tu USDC quedó a salvo; escribime y lo resolvemos."
+        : "No pude sacar tu plata del pool ahora. No moví nada de tu saldo; probá de nuevo en un rato."
+    );
+    this.name = "BlendOperationError";
+  }
+}
+
+/** After Blend fails, never continue to share updates, payouts, or success copy. */
+export function abortOnBlendFailure(
+  action: "deposit" | "withdraw",
+  error: unknown
+): never {
+  logSafeError(
+    action === "deposit"
+      ? "Blend SupplyCollateral falló; no actualizo shares ni confirmo éxito"
+      : "Blend WithdrawCollateral falló; no pago ni bajo shares",
+    error
+  );
+  throw new BlendOperationError(action);
+}
+
 async function availableStroops(phone: string): Promise<bigint> {
   await syncYieldAccounting().catch((error) =>
     logSafeError("Yield sync al leer posición", error)
@@ -76,19 +101,19 @@ export async function deposit(
   const transfer = await transferUsdcFromWallet(user, treasury, amount, {
     memo: YIELD_DEPOSIT_MEMO,
   });
-  const credit = await waitForTreasuryCredit({
+  await waitForTreasuryCredit({
     from: user.publicKey,
     amountStroops: stroops,
     timeoutMs: 90_000,
   });
 
-  let blendHash = credit.hash;
+  let blendHash: string;
   try {
     blendHash = await treasurySimulateThenSubmit(
       buildSubmitOperation(treasury, stroops, RequestType.SupplyCollateral)
     );
   } catch (error) {
-    logSafeError("Blend deposit_collateral, USDC quedó en tesorería", error);
+    abortOnBlendFailure("deposit", error);
   }
 
   const previous = await findYieldPosition(userId);
@@ -133,13 +158,13 @@ export async function withdraw(
   }
 
   const treasury = await ensureTreasuryUsdcTrustline();
-  let blendHash = "";
+  let blendHash: string;
   try {
     blendHash = await treasurySimulateThenSubmit(
       buildSubmitOperation(treasury, stroops, RequestType.WithdrawCollateral)
     );
   } catch (error) {
-    logSafeError("Blend withdraw, intento acreditar igual desde tesorería", error);
+    abortOnBlendFailure("withdraw", error);
   }
 
   const user = await getOrCreateUserAccount(userId);

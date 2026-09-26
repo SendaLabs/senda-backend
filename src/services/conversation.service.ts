@@ -73,6 +73,7 @@ import {
   deposit as supplyToBlend,
   getPosition as getBlendPosition,
   withdraw as withdrawFromBlend,
+  BlendOperationError,
   YieldDepositsBlockedError,
 } from "../yield/savings-service";
 import { isPositiveUsdcAmount } from "../yield/yield-book";
@@ -87,21 +88,19 @@ import {
   getWelcomeVideoUrl,
 } from "./whatsapp.service";
 
-let currentMessageId: string | undefined;
-
 const MAX_USDC_PER_SEND = 500;
 
 function localeOf(phone: string, fallback: Locale = "es"): Locale {
   return getSession(phone)?.locale ?? fallback;
 }
 
-function rememberLocale(phone: string, text: string, name: string): Locale {
+async function rememberLocale(phone: string, text: string, name: string): Promise<Locale> {
   const detected = inferLocale(text);
   const locale = detected ?? localeOf(phone);
   const current = getSession(phone);
   if (current) {
     if (current.locale !== locale || current.name !== name) {
-      setSession(phone, { ...current, name, locale });
+      await setSession(phone, { ...current, name, locale });
     }
   }
   return locale;
@@ -133,11 +132,11 @@ function idleSession(
   };
 }
 
-function saveSession(
+async function saveSession(
   to: string,
   name: string,
   patch: Partial<ConversationSession> = {}
-): ConversationSession {
+): Promise<ConversationSession> {
   return setSession(to, {
     step: ConversationStep.AWAITING_MENU_OPTION,
     name,
@@ -152,7 +151,7 @@ async function sendMenu(
   locale: Locale = "es"
 ): Promise<void> {
   await sendWhatsAppMessage(to, welcomeMenuText(name, locale));
-  setSession(to, idleSession(name, { locale }));
+  await setSession(to, idleSession(name, { locale }));
 }
 
 function sleep(ms: number): Promise<void> {
@@ -201,19 +200,19 @@ async function sendWelcomeFlow(
 
 async function startSendFlow(to: string, name: string): Promise<void> {
   const locale = localeOf(to);
-  saveSession(to, name, { step: ConversationStep.AWAITING_USD_AMOUNT });
+  await saveSession(to, name, { step: ConversationStep.AWAITING_USD_AMOUNT });
   await sendWhatsAppMessage(to, startSendText(locale));
 }
 
 async function executeUsdcTransfer(
   to: string,
   name: string,
-  usdAmount: number
+  usdAmount: number,
+  messageId?: string
 ): Promise<void> {
-  const messageId = currentMessageId;
   const locale = localeOf(to);
   if (usdAmount > MAX_USDC_PER_SEND) {
-    saveSession(to, name, { step: ConversationStep.AWAITING_USD_AMOUNT });
+    await saveSession(to, name, { step: ConversationStep.AWAITING_USD_AMOUNT });
     await sendWhatsAppMessage(to, sendMaxText(locale, MAX_USDC_PER_SEND));
     return;
   }
@@ -248,7 +247,7 @@ async function executeUsdcTransfer(
         txHash: credited.usdcTxHash,
       };
     });
-    saveSession(to, name);
+    await saveSession(to, name);
 
     const proof =
       result.txHash && !result.duplicate ? explorerTxUrl(result.txHash) : "";
@@ -264,7 +263,7 @@ async function executeUsdcTransfer(
     }
   } catch (error) {
     logSafeError("Error al acreditar", error);
-    saveSession(to, name, { step: ConversationStep.AWAITING_USD_AMOUNT });
+    await saveSession(to, name, { step: ConversationStep.AWAITING_USD_AMOUNT });
     await sendWhatsAppMessage(to, humanizeLedgerError(error));
   }
 }
@@ -272,7 +271,8 @@ async function executeUsdcTransfer(
 async function handleUsdAmount(
   to: string,
   name: string,
-  text: string
+  text: string,
+  messageId?: string
 ): Promise<void> {
   const usdAmount = extractUsdAmount(text);
   if (usdAmount === null) {
@@ -283,12 +283,12 @@ async function handleUsdAmount(
     return;
   }
 
-  await executeUsdcTransfer(to, name, usdAmount);
+  await executeUsdcTransfer(to, name, usdAmount, messageId);
 }
 
 async function handleBalanceQuery(to: string, name: string): Promise<void> {
   const locale = localeOf(to);
-  saveSession(to, name);
+  await saveSession(to, name);
 
   try {
     const state = await getUserOnChainState(to);
@@ -318,13 +318,13 @@ async function startMercadoPagoFlow(
 ): Promise<void> {
   const locale = localeOf(to);
   if (amount === null) {
-    saveSession(to, name, { step: ConversationStep.AWAITING_MP_AMOUNT });
+    await saveSession(to, name, { step: ConversationStep.AWAITING_MP_AMOUNT });
     await sendWhatsAppMessage(to, askMpAmount(locale));
     return;
   }
 
   if (amount > MAX_USDC_PER_SEND) {
-    saveSession(to, name, { step: ConversationStep.AWAITING_MP_AMOUNT });
+    await saveSession(to, name, { step: ConversationStep.AWAITING_MP_AMOUNT });
     await sendWhatsAppMessage(to, withdrawMaxText(locale, MAX_USDC_PER_SEND));
     return;
   }
@@ -338,11 +338,11 @@ async function startMercadoPagoFlow(
     const started = await withPhoneLock(to, () =>
       startMercadoPagoWithdraw(to, amount)
     );
-    saveSession(to, name);
+    await saveSession(to, name);
     await sendWhatsAppMessage(to, mpReadyText(locale, started.url));
   } catch (error) {
     logSafeError("Error en retiro Mercado Pago", error);
-    saveSession(to, name);
+    await saveSession(to, name);
     await sendWhatsAppMessage(to, humanizeLedgerError(error));
   }
 }
@@ -354,7 +354,7 @@ async function startYieldSupplyFlow(
 ): Promise<void> {
   const locale = localeOf(to);
   if (amount === null) {
-    saveSession(to, name, {
+    await saveSession(to, name, {
       step: ConversationStep.AWAITING_YIELD_SUPPLY_AMOUNT,
     });
     await sendWhatsAppMessage(to, askYieldSupplyAmount(locale));
@@ -362,7 +362,7 @@ async function startYieldSupplyFlow(
   }
 
   if (amount > MAX_USDC_PER_SEND) {
-    saveSession(to, name, {
+    await saveSession(to, name, {
       step: ConversationStep.AWAITING_YIELD_SUPPLY_AMOUNT,
     });
     await sendWhatsAppMessage(to, yieldMaxText(locale, MAX_USDC_PER_SEND));
@@ -376,7 +376,7 @@ async function startYieldSupplyFlow(
 
   try {
     const result = await withPhoneLock(to, () => supplyToBlend(to, amount));
-    saveSession(to, name);
+    await saveSession(to, name);
     await sendWhatsAppMessage(
       to,
       yieldSupplyReadyText(
@@ -388,8 +388,12 @@ async function startYieldSupplyFlow(
     );
   } catch (error) {
     logSafeError("Error al poner a rendir", error);
-    saveSession(to, name);
+    await saveSession(to, name);
     if (error instanceof YieldDepositsBlockedError) {
+      await sendWhatsAppMessage(to, error.message);
+      return;
+    }
+    if (error instanceof BlendOperationError) {
       await sendWhatsAppMessage(to, error.message);
       return;
     }
@@ -404,7 +408,7 @@ async function startYieldWithdrawFlow(
 ): Promise<void> {
   const locale = localeOf(to);
   if (amount === null) {
-    saveSession(to, name, {
+    await saveSession(to, name, {
       step: ConversationStep.AWAITING_YIELD_WITHDRAW_AMOUNT,
     });
     await sendWhatsAppMessage(to, askYieldWithdrawAmount(locale));
@@ -418,7 +422,7 @@ async function startYieldWithdrawFlow(
 
   try {
     const result = await withPhoneLock(to, () => withdrawFromBlend(to, amount));
-    saveSession(to, name);
+    await saveSession(to, name);
     await sendWhatsAppMessage(
       to,
       yieldWithdrawReadyText(
@@ -430,7 +434,11 @@ async function startYieldWithdrawFlow(
     );
   } catch (error) {
     logSafeError("Error al sacar de rendir", error);
-    saveSession(to, name);
+    await saveSession(to, name);
+    if (error instanceof BlendOperationError) {
+      await sendWhatsAppMessage(to, error.message);
+      return;
+    }
     await sendWhatsAppMessage(to, humanizeLedgerError(error));
   }
 }
@@ -441,7 +449,7 @@ async function startCobroFlow(
   amount: number | null
 ): Promise<void> {
   if (amount === null) {
-    saveSession(to, name, { step: ConversationStep.AWAITING_COBRO_AMOUNT });
+    await saveSession(to, name, { step: ConversationStep.AWAITING_COBRO_AMOUNT });
     await sendWhatsAppMessage(to, askCobroAmount(localeOf(to)));
     return;
   }
@@ -461,7 +469,7 @@ async function sendCobroLink(
   const shareUrl = cobroWhatsAppShareUrl(cobro.token);
   const png = await renderSep7QrPng(shareUrl);
 
-  saveSession(to, name);
+  await saveSession(to, name);
   await sendWhatsAppImage(
     to,
     png,
@@ -498,14 +506,14 @@ async function paySep7Link(
 
   const payer = await getOrCreateUserAccount(to);
   if (parsed.destination === payer.publicKey) {
-    saveSession(to, name);
+    await saveSession(to, name);
     await sendWhatsAppMessage(to, cobroOwnLinkText(locale));
     return;
   }
 
   const amount = amountOverride ?? Number(parsed.amount);
   if (!Number.isFinite(amount) || amount <= 0) {
-    saveSession(to, name, {
+    await saveSession(to, name, {
       step: ConversationStep.AWAITING_SEP7_AMOUNT,
       pendingDestination: parsed.destination,
     });
@@ -522,7 +530,7 @@ async function paySep7Link(
     const result = await withPhoneLock(to, () =>
       transferUsdcFromWallet(payer, parsed.destination, amount)
     );
-    saveSession(to, name);
+    await saveSession(to, name);
     await sendWhatsAppMessage(
       to,
       cobroPaidText(
@@ -534,14 +542,14 @@ async function paySep7Link(
     );
   } catch (error) {
     logSafeError("Error al pagar SEP-7", error);
-    saveSession(to, name);
+    await saveSession(to, name);
     await sendWhatsAppMessage(to, humanizeLedgerError(error));
   }
 }
 
 async function handleYieldPosition(to: string, name: string): Promise<void> {
   const locale = localeOf(to);
-  saveSession(to, name);
+  await saveSession(to, name);
   try {
     const position = await getBlendPosition(to);
     if (!isPositiveUsdcAmount(position.currentValueUsdc)) {
@@ -561,7 +569,8 @@ async function handleYieldPosition(to: string, name: string): Promise<void> {
 async function dispatchIntent(
   to: string,
   name: string,
-  text: string
+  text: string,
+  messageId?: string
 ): Promise<void> {
   const intent = classifyIntent(text);
 
@@ -571,7 +580,7 @@ async function dispatchIntent(
       return;
     case "send":
       if (intent.amount !== null) {
-        await executeUsdcTransfer(to, name, intent.amount);
+        await executeUsdcTransfer(to, name, intent.amount, messageId);
         return;
       }
       await startSendFlow(to, name);
@@ -636,12 +645,7 @@ export async function handleIncomingWhatsAppMessage(
   text: string,
   messageId?: string
 ): Promise<void> {
-  currentMessageId = messageId;
-  try {
-    await handleIncomingWhatsAppMessageInner(from, name, text);
-  } finally {
-    currentMessageId = undefined;
-  }
+  await handleIncomingWhatsAppMessageInner(from, name, text, messageId);
 }
 
 function isReceiptQuery(text: string): boolean {
@@ -653,14 +657,15 @@ function isReceiptQuery(text: string): boolean {
 async function handleIncomingWhatsAppMessageInner(
   from: string,
   name: string,
-  text: string
+  text: string,
+  messageId?: string
 ): Promise<void> {
   await hydrateSession(from);
-  const locale = rememberLocale(from, text, name);
+  const locale = await rememberLocale(from, text, name);
   const setupInvite = await maybeInviteWalletSetup(from, name, locale);
   if (setupInvite) {
     const firstTouch = !getSession(from);
-    saveSession(from, name, { locale });
+    await saveSession(from, name, { locale });
     if (firstTouch || isGreeting(text) || isMenuRequest(text)) {
       await sendWelcomeVideoOrCaption(from, welcomeVideoCaption(name, locale));
       await sleep(2800);
@@ -681,13 +686,13 @@ async function handleIncomingWhatsAppMessageInner(
   const intent = classifyIntent(text);
 
   if (!session) {
-    saveSession(from, name, { locale });
+    await saveSession(from, name, { locale });
     if (intent.type === "unknown" || intent.type === "menu") {
       await sendWelcomeFlow(from, name, locale);
       return;
     }
 
-    await dispatchIntent(from, name, text);
+    await dispatchIntent(from, name, text, messageId);
     return;
   }
 
@@ -695,7 +700,7 @@ async function handleIncomingWhatsAppMessageInner(
     intent.type === "option" &&
     session.step === ConversationStep.AWAITING_MENU_OPTION
   ) {
-    await dispatchIntent(from, session.name, text);
+    await dispatchIntent(from, session.name, text, messageId);
     return;
   }
 
@@ -710,12 +715,12 @@ async function handleIncomingWhatsAppMessageInner(
     intent.type === "sep7_pay" ||
     (intent.type === "send" && intent.amount !== null && hasSendVerb(text))
   ) {
-    await dispatchIntent(from, session.name, text);
+    await dispatchIntent(from, session.name, text, messageId);
     return;
   }
 
   if (session.step === ConversationStep.AWAITING_USD_AMOUNT) {
-    await handleUsdAmount(from, session.name, text);
+    await handleUsdAmount(from, session.name, text, messageId);
     return;
   }
 
@@ -798,5 +803,5 @@ async function handleIncomingWhatsAppMessageInner(
     return;
   }
 
-  await dispatchIntent(from, session.name, text);
+  await dispatchIntent(from, session.name, text, messageId);
 }

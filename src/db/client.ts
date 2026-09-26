@@ -130,9 +130,18 @@ export async function dbTransaction<T>(
       client.release();
     }
   }
-  return fn(async (sql, ...params) =>
-    getDb().prepare(sql).all(...sqliteArgs(params))
-  );
+  const db = getDb();
+  db.exec("BEGIN");
+  try {
+    const result = await fn(async (sql, ...params) =>
+      db.prepare(sql).all(...sqliteArgs(params))
+    );
+    db.exec("COMMIT");
+    return result;
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 export async function closeDb(): Promise<void> {

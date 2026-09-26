@@ -2,6 +2,7 @@ import type { Locale } from "../i18n/locale";
 import { dbGet, dbRun } from "../db/client";
 import { hashWhatsAppSender } from "./webhook-security.service";
 import { normalizePhoneIdentity } from "./identity.service";
+import { logSafeError } from "./whatsapp.service";
 
 export const ConversationStep = {
   AWAITING_MENU_OPTION: "AWAITING_MENU_OPTION",
@@ -77,31 +78,35 @@ export function getSession(phone: string): ConversationSession | undefined {
   return sessions.get(sessionKey(phone));
 }
 
-export function setSession(
+export async function setSession(
   phone: string,
   session: ConversationSession
-): ConversationSession {
+): Promise<ConversationSession> {
   const key = sessionKey(phone);
   sessions.set(key, session);
   console.log(`Sesión ${hashWhatsAppSender(phone)}: paso ${session.step}`);
-  void dbRun(
-    `INSERT INTO sessions (phone, step, name, locale, pending_amount, pending_partner, pending_destination)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(phone) DO UPDATE SET
-       step = excluded.step,
-       name = excluded.name,
-       locale = excluded.locale,
-       pending_amount = excluded.pending_amount,
-       pending_partner = excluded.pending_partner,
-       pending_destination = excluded.pending_destination`,
-    key,
-    session.step,
-    session.name,
-    session.locale ?? null,
-    session.pendingAmount ?? null,
-    session.pendingPartner ?? null,
-    session.pendingDestination ?? null
-  );
+  try {
+    await dbRun(
+      `INSERT INTO sessions (phone, step, name, locale, pending_amount, pending_partner, pending_destination)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(phone) DO UPDATE SET
+         step = excluded.step,
+         name = excluded.name,
+         locale = excluded.locale,
+         pending_amount = excluded.pending_amount,
+         pending_partner = excluded.pending_partner,
+         pending_destination = excluded.pending_destination`,
+      key,
+      session.step,
+      session.name,
+      session.locale ?? null,
+      session.pendingAmount ?? null,
+      session.pendingPartner ?? null,
+      session.pendingDestination ?? null
+    );
+  } catch (error) {
+    logSafeError("No pude persistir la sesión", error);
+  }
   return session;
 }
 

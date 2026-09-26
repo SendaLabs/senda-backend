@@ -24,14 +24,19 @@ function stellarWalletOf(user: {
   const wallet = user.linkedAccounts?.find(
     (item) =>
       item.type === "wallet" &&
-      item.chainType === "stellar" &&
+      (item.chainType === "stellar" ||
+        (item as { chain_type?: string }).chain_type === "stellar") &&
       item.address &&
-      item.id
+      (item.id || (item as { walletId?: string }).walletId)
   );
-  if (!wallet?.address || !wallet.id) {
+  const id =
+    wallet?.id ||
+    (wallet as { walletId?: string } | undefined)?.walletId ||
+    null;
+  if (!wallet?.address || !id) {
     return null;
   }
-  return { address: wallet.address, id: wallet.id };
+  return { address: wallet.address, id };
 }
 
 function SetupInner({
@@ -133,10 +138,15 @@ function SetupInner({
         };
       }
 
+      // Keep Privy's address casing for addSigners; backend uppercases for Stellar G-keys.
+      // Empty policyIds = full signer permission per Privy docs (omit broke some SDK builds).
       await addSigners({
         address: wallet.address,
         signers: [
-          policyId ? { signerId, policyIds: [policyId] } : { signerId },
+          {
+            signerId,
+            policyIds: policyId ? [policyId] : [],
+          },
         ],
       });
 

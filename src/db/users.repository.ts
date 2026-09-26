@@ -50,8 +50,8 @@ type TxRow = {
   sep24_transaction_id: string | null;
   sep24_jwt_enc: string | null;
   provider_id: string | null;
-  horizon_confirmed: number;
-  anchor_confirmed: number;
+  horizon_confirmed: number | string | boolean;
+  anchor_confirmed: number | string | boolean;
   last_notified_status: string | null;
   created_at: string;
 };
@@ -85,8 +85,9 @@ function mapTx(row: TxRow): StoredTransaction {
     sep24TransactionId: row.sep24_transaction_id ?? undefined,
     sep24JwtEnc: row.sep24_jwt_enc ?? undefined,
     providerId: row.provider_id ?? undefined,
-    horizonConfirmed: Boolean(row.horizon_confirmed),
-    anchorConfirmed: Boolean(row.anchor_confirmed),
+    // INTEGER 0/1 from SQLite/Postgres — avoid Boolean("0") === true
+    horizonConfirmed: Number(row.horizon_confirmed) === 1,
+    anchorConfirmed: Number(row.anchor_confirmed) === 1,
     lastNotifiedStatus: row.last_notified_status ?? undefined,
     createdAt: row.created_at,
   };

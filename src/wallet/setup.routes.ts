@@ -21,19 +21,30 @@ function setupCorsOrigin(): string {
   ).replace(/\/$/, "");
 }
 
+function isLocalSetupOrigin(origin: string): boolean {
+  try {
+    const host = new URL(origin).hostname;
+    return host === "localhost" || host === "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
+
 function allowSetupCors(req: Request, res: Response, next: NextFunction): void {
   const origin = (req.header("Origin") || "").replace(/\/$/, "");
   const configured = setupCorsOrigin();
+  // Exact configured origin only. Do not reflect arbitrary *.onrender.com /
+  // localhost.evil.com — setup tokens are bearer credentials.
   const allowed =
     origin &&
     (origin === configured ||
-      origin.endsWith(".onrender.com") ||
-      origin.startsWith("http://localhost"))
+      (process.env.NODE_ENV !== "production" && isLocalSetupOrigin(origin)))
       ? origin
       : configured;
   res.setHeader("Access-Control-Allow-Origin", allowed);
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Vary", "Origin");
   if (req.method === "OPTIONS") {
     res.sendStatus(204);
     return;
@@ -95,12 +106,9 @@ export function mountSetupRoutes(app: Express): void {
     }
 
     try {
-      const row = await peekSetupToken(token);
-      if (!row) {
-        throw new Error("Ese enlace de alta ya no sirve. Pedime uno nuevo por WhatsApp.");
-      }
+      // Consume first (atomic) so a double-submit cannot link twice.
+      const row = await consumeSetupToken(token);
       await upsertPrivyUser(row.phone, walletId, walletAddress, privyUserId);
-      await consumeSetupToken(token);
       await hydrateSession(row.phone);
       res.json({
         ok: true,

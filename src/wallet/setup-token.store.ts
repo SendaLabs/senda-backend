@@ -101,11 +101,20 @@ export async function peekSetupToken(token: string): Promise<SetupToken | null> 
 }
 
 export async function consumeSetupToken(token: string): Promise<SetupToken> {
-  const current = await peekSetupToken(token);
-  if (!current) {
+  const usedAt = new Date().toISOString();
+  const now = new Date().toISOString();
+  // Atomic consume so two parallel /api/link-wallet cannot both succeed.
+  const row = await dbGet<TokenRow>(
+    `UPDATE setup_tokens
+     SET used_at = ?
+     WHERE token = ? AND used_at IS NULL AND expires_at > ?
+     RETURNING *`,
+    usedAt,
+    token,
+    now
+  );
+  if (!row) {
     throw new Error("Ese enlace de alta ya no sirve. Pedime uno nuevo por WhatsApp.");
   }
-  const usedAt = new Date().toISOString();
-  await dbRun("UPDATE setup_tokens SET used_at = ? WHERE token = ?", usedAt, token);
-  return { ...current, usedAt };
+  return mapToken(row);
 }

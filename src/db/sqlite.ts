@@ -84,11 +84,11 @@ CREATE TABLE IF NOT EXISTS credit_claims (
   phone TEXT NOT NULL,
   amount REAL NOT NULL,
   tx_hash TEXT,
-  created_at INTEGER NOT NULL
+  created_at BIGINT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS processed_messages (
   id TEXT PRIMARY KEY,
-  seen_at INTEGER NOT NULL
+  seen_at BIGINT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,

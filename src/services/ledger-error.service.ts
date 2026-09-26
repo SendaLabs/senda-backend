@@ -39,6 +39,10 @@ export function humanizeLedgerError(error: unknown): string {
     return error.message;
   }
 
+  if (error instanceof Error && error.name === "BlendOperationError") {
+    return error.message;
+  }
+
   if (/cuenta operativa no está fondeada|friendbot|falta stellar_secret_key/i.test(raw)) {
     return "Ahora no puedo mover dólares: la cuenta de Senda no está lista. Probá en un rato.";
   }

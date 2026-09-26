@@ -48,14 +48,16 @@ export async function saveWallet(
     phone
   );
   const persistSecret = options?.persistSecret === true;
-  let encryptedSecret: string | null = null;
+  let encryptedSecret: string | null = previous?.encrypted_secret ?? null;
 
   if (persistSecret && wallet.secretKey) {
     encryptedSecret = isVaultCiphertext(wallet.secretKey)
       ? wallet.secretKey
       : encryptString(wallet.secretKey);
-  } else if (previous?.encrypted_secret && persistSecret) {
-    encryptedSecret = previous.encrypted_secret;
+  } else if (!persistSecret) {
+    // Never null out an existing vault blob when only refreshing metadata
+    // (Privy link / derived resolve). Derived accounts still store null.
+    encryptedSecret = previous?.encrypted_secret ?? null;
   }
 
   await dbRun(

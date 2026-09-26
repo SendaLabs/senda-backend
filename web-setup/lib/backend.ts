@@ -1,5 +1,3 @@
-const FALLBACK_API_URL = "https://senda-backend-2r5k.onrender.com";
-
 function usableApiUrl(raw?: string): string {
   const value = (raw ?? "").trim().replace(/\/$/, "");
   if (!value) {
@@ -18,28 +16,47 @@ function usableApiUrl(raw?: string): string {
 }
 
 export function getBackendApiUrl(): string {
-  return (
+  const configured =
     usableApiUrl(process.env.SENDA_API_URL) ||
-    usableApiUrl(process.env.NEXT_PUBLIC_SENDA_API_URL) ||
-    FALLBACK_API_URL
-  );
+    usableApiUrl(process.env.NEXT_PUBLIC_SENDA_API_URL);
+  if (configured) {
+    return configured;
+  }
+  // Production must fail closed — never fall back to a hardcoded host.
+  if (process.env.NODE_ENV === "production") {
+    return "";
+  }
+  return "http://localhost:3000";
 }
 
 function apiCandidates(): string[] {
-  const urls = [
-    usableApiUrl(process.env.SENDA_API_URL),
-    usableApiUrl(process.env.NEXT_PUBLIC_SENDA_API_URL),
-    FALLBACK_API_URL,
-  ].filter(Boolean);
-  return [...new Set(urls)];
+  const base = getBackendApiUrl();
+  return base ? [base] : [];
+}
+
+function missingApiResponse(): Response {
+  return Response.json(
+    {
+      valid: false,
+      ok: false,
+      error:
+        "Falta SENDA_API_URL en el sitio de alta. No hablamos con ningún API por defecto.",
+    },
+    { status: 503 }
+  );
 }
 
 export async function proxyBackend(
   path: string,
   init?: RequestInit
 ): Promise<Response> {
+  const candidates = apiCandidates();
+  if (candidates.length === 0) {
+    return missingApiResponse();
+  }
+
   let last: Response | null = null;
-  for (const base of apiCandidates()) {
+  for (const base of candidates) {
     try {
       const res = await fetch(`${base}${path}`, {
         ...init,
@@ -89,32 +106,40 @@ export async function fetchSetupInfo(token: string): Promise<SetupInfo> {
     return { valid: false };
   }
 
-  let last: SetupInfo = {
-    valid: false,
-    error: "No pude hablar con Senda. Probá de nuevo en un momento.",
-  };
-
-  for (const base of apiCandidates()) {
-    try {
-      const res = await fetch(
-        `${base}/api/setup/${encodeURIComponent(trimmed)}`,
-        { cache: "no-store" }
-      );
-      const body = (await res.json()) as SetupInfo;
-      if (body.valid) {
-        return body;
-      }
-      last = {
-        valid: false,
-        error:
-          res.status >= 500
-            ? "Senda no pudo validar el enlace. Probá de nuevo en un rato."
-            : undefined,
-      };
-    } catch {
-      continue;
-    }
+  const base = getBackendApiUrl();
+  if (!base) {
+    return {
+      valid: false,
+      error:
+        "Falta SENDA_API_URL en el sitio de alta. No hablamos con ningún API por defecto.",
+    };
   }
 
-  return last;
+  try {
+    const res = await fetch(
+      `${base}/api/setup/${encodeURIComponent(trimmed)}`,
+      { cache: "no-store" }
+    );
+    const body = (await res.json()) as SetupInfo;
+    if (body.valid) {
+      return body;
+    }
+    // Definitive invalid (e.g. 404 { valid: false }) from the configured API is final.
+    // Do not probe another host.
+    if (res.status < 500) {
+      return {
+        valid: false,
+        error: body.error,
+      };
+    }
+    return {
+      valid: false,
+      error: "Senda no pudo validar el enlace. Probá de nuevo en un rato.",
+    };
+  } catch {
+    return {
+      valid: false,
+      error: "No pude hablar con Senda. Probá de nuevo en un momento.",
+    };
+  }
 }

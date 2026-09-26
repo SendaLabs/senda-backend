@@ -76,30 +76,47 @@ export async function beginCreditClaim(
     throw new CreditInFlightError();
   }
 
-  const hourly = await dbGet<{ count: number }>(
+  const hourly = await dbGet<{ count: number | string }>(
     "SELECT COUNT(*) AS count FROM credit_claims WHERE phone = ? AND created_at >= ?",
     identity,
     now - HOUR_MS
   );
-  if ((hourly?.count ?? 0) >= MAX_CREDITS_PER_HOUR) {
+  // node-pg returns COUNT(*) as string (int8); coerce before compare.
+  if (Number(hourly?.count ?? 0) >= MAX_CREDITS_PER_HOUR) {
     throw new CreditRateLimitError("Alcanzaste el tope de envíos por hora");
   }
 
-  const daily = await dbGet<{ total: number }>(
-    "SELECT COALESCE(SUM(amount), 0) AS total FROM credit_claims WHERE phone = ?",
-    identity
+  const daily = await dbGet<{ total: number | string }>(
+    "SELECT COALESCE(SUM(amount), 0) AS total FROM credit_claims WHERE phone = ? AND created_at >= ?",
+    identity,
+    now - DAY_MS
   );
   if (Number(daily?.total ?? 0) + amount > MAX_DAILY_USDC) {
     throw new CreditRateLimitError("Alcanzaste el tope diario de envíos");
   }
 
-  await dbRun(
-    "INSERT INTO credit_claims (message_id, phone, amount, tx_hash, created_at) VALUES (?, ?, ?, NULL, ?)",
-    messageId,
-    identity,
-    amount,
-    now
-  );
+  try {
+    await dbRun(
+      "INSERT INTO credit_claims (message_id, phone, amount, tx_hash, created_at) VALUES (?, ?, ?, NULL, ?)",
+      messageId,
+      identity,
+      amount,
+      now
+    );
+  } catch (error) {
+    // Unique race under Postgres/SQLite: treat as in-flight duplicate.
+    const again = await dbGet<ClaimRow>(
+      "SELECT * FROM credit_claims WHERE message_id = ?",
+      messageId
+    );
+    if (again?.tx_hash) {
+      return { status: "duplicate", txHash: again.tx_hash };
+    }
+    if (again) {
+      throw new CreditInFlightError();
+    }
+    throw error;
+  }
   return { status: "claimed" };
 }
 

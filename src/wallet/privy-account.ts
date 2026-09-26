@@ -15,7 +15,9 @@ export function isLinkedPrivyUser(user: {
   privyWalletId?: string | null;
   stellarPublicKey?: string | null;
 } | null): boolean {
-  return Boolean(user?.privyWalletId && user.stellarPublicKey);
+  const walletId = user?.privyWalletId?.trim();
+  const pub = user?.stellarPublicKey?.trim();
+  return Boolean(walletId && pub && pub.startsWith("G"));
 }
 
 export async function resolvePrivyAccount(
