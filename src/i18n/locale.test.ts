@@ -49,6 +49,8 @@ test("el alta Privy también tiene inglés sin sacar el español", () => {
   assert.match(es, /Abrir mi cuenta/);
   assert.match(es, /volvés al chat/);
   assert.doesNotMatch(es, /onrender\.com|https?:\/\//i);
+  assert.doesNotMatch(es, /30\s*minut/i);
+  assert.doesNotMatch(en, /30\s*minut/i);
   assert.match(en, /email/);
   assert.match(en, /Open my account/);
   assert.match(buildSetupReadyText("en"), /Your account is all set/);

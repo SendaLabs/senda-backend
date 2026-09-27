@@ -36,6 +36,24 @@ export function startSendText(locale: Locale): string {
     : `Dale, te armo el envío al toque.\n\n${askAmount(locale)}`;
 }
 
+export function askSendRecipientText(locale: Locale): string {
+  return locale === "en"
+    ? "Who should receive it, and how do I pay them? I need their phone, CVU, alias, or Senda payment link — without a real destination I can't send."
+    : "¿A quién se lo mando y cómo le pago? Necesito su teléfono, CVU, alias o un link de cobro de Senda: sin un destino real no puedo enviar.";
+}
+
+export function returningGreetingText(name: string, locale: Locale): string {
+  const first = name.trim().split(/\s+/)[0] || "";
+  if (locale === "en") {
+    return first
+      ? `Hi, ${first}! You're already in. How can I help you today?`
+      : "Hi! You're already in. How can I help you today?";
+  }
+  return first
+    ? `Hola, ${first}, ¿en qué puedo ayudarte hoy?`
+    : "Hola, ¿en qué puedo ayudarte hoy?";
+}
+
 export function sendMaxText(locale: Locale, max: number): string {
   return locale === "en"
     ? `For now the max per transfer is ${max} USDC. Give me another amount.`
@@ -269,6 +287,12 @@ export function cobroPayNeedAmountText(locale: Locale): string {
     : "No vi un monto. Decime cuánto querés pagar, por ejemplo 10.";
 }
 
+export function payeeReceiptCaption(locale: Locale = "es"): string {
+  return locale === "en"
+    ? "Money just arrived. Here's your receipt."
+    : "Te llegó plata. Te dejo el comprobante.";
+}
+
 export function savingsOfferText(
   locale: Locale,
   received: string,
@@ -353,7 +377,7 @@ export function buildSetupInviteText(name: string, locale: Locale): string {
     return [
       `${first}, to get started we'll open your account. It's a one-time step and takes about a minute.`,
       "",
-      `Tap «${setupInviteButton(locale)}». It's from Senda and lasts 30 minutes.`,
+      `Tap «${setupInviteButton(locale)}». It's from Senda.`,
       "Sign in with your email. You'll get a code, create your account, and you're done.",
       'When you see "Done", WhatsApp opens again: your account will be created.',
     ].join("\n");
@@ -361,7 +385,7 @@ export function buildSetupInviteText(name: string, locale: Locale): string {
   return [
     `${first}, para empezar vamos a abrir tu cuenta. Es una sola vez y te lleva un minutito.`,
     "",
-    `Tocá «${setupInviteButton(locale)}». Es de Senda y dura 30 minutos.`,
+    `Tocá «${setupInviteButton(locale)}». Es de Senda.`,
     "Entrá con tu email. Te llega un código al correo, creás tu cuenta y listo.",
     "Cuando veas «Listo», volvés al chat: tu cuenta va a estar creada con éxito.",
   ].join("\n");

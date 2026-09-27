@@ -13,17 +13,21 @@ import {
 test("el invite de alta no pega URL de Render y pide el email", () => {
   const text = buildSetupInvite("Ana");
   assert.doesNotMatch(text, /onrender\.com|https?:\/\//i);
+  assert.doesNotMatch(text, /30\s*minut/i);
   assert.match(text, /Abrir mi cuenta/);
   assert.match(text, /email/);
   assert.match(text, /Ana/);
   assert.match(text, /creada con éxito/);
+  assert.match(text, /minutito/);
 });
 
 test("el invite en inglés no saca el texto en español por defecto", () => {
   const en = buildSetupInvite("Ana", "en");
   assert.doesNotMatch(en, /onrender\.com|https?:\/\//i);
+  assert.doesNotMatch(en, /30\s*minut/i);
   assert.match(en, /Open my account/);
   assert.match(en, /email/);
+  assert.match(en, /about a minute/);
   assert.match(en, /WhatsApp opens again/);
   const es = buildSetupInvite("Ana");
   assert.match(es, /Abrir mi cuenta/);
