@@ -98,6 +98,10 @@ export async function deposit(
   }
 
   const treasury = await ensureTreasuryUsdcTrustline();
+  // Blend SupplyCollateral runs from the treasury wallet, so USDC must land
+  // there first. We cannot safely skip the transfer. If Blend fails after the
+  // move, abortOnBlendFailure refuses success copy; inventing an automatic
+  // refund is risky (double-pay / race) so we leave funds in treasury for ops.
   const transfer = await transferUsdcFromWallet(user, treasury, amount, {
     memo: YIELD_DEPOSIT_MEMO,
   });
