@@ -1,3 +1,4 @@
+import { normalizePhoneIdentity } from "../services/identity.service";
 import { dbAll, dbGet, dbRun } from "./client";
 import { nowIso } from "./sqlite";
 
@@ -107,18 +108,42 @@ function mapYield(row: YieldRow): StoredYieldPosition {
 export async function findUserByPhone(
   phone: string
 ): Promise<StoredUser | null> {
-  const row = await dbGet<UserRow>("SELECT * FROM users WHERE phone = ?", phone);
+  const key = normalizePhoneIdentity(phone);
+  const row = await dbGet<UserRow>("SELECT * FROM users WHERE phone = ?", key);
   return row ? mapUser(row) : null;
 }
 
 export async function findUserByPublicKey(
   publicKey: string
 ): Promise<StoredUser | null> {
+  const key = publicKey.trim().toUpperCase();
+  if (!key) {
+    return null;
+  }
   const row = await dbGet<UserRow>(
-    "SELECT * FROM users WHERE stellar_public_key = ?",
-    publicKey
+    "SELECT * FROM users WHERE upper(stellar_public_key) = ?",
+    key
   );
-  return row ? mapUser(row) : null;
+  if (row) {
+    return mapUser(row);
+  }
+  const wallet = await dbGet<{ phone: string; public_key: string }>(
+    "SELECT phone, public_key FROM wallets WHERE upper(public_key) = ?",
+    key
+  );
+  if (!wallet?.phone) {
+    return null;
+  }
+  const byPhone = await findUserByPhone(wallet.phone);
+  if (byPhone) {
+    return byPhone;
+  }
+  return {
+    phone: normalizePhoneIdentity(wallet.phone),
+    privyWalletId: null,
+    stellarPublicKey: wallet.public_key,
+    privyUserId: null,
+  };
 }
 
 export async function upsertPrivyUser(
@@ -127,6 +152,13 @@ export async function upsertPrivyUser(
   stellarPublicKey: string,
   privyUserId?: string
 ): Promise<StoredUser> {
+  const key = normalizePhoneIdentity(phone);
+  const pub = stellarPublicKey.trim().toUpperCase();
+  if (!/^G[A-Z2-7]{55}$/.test(pub)) {
+    throw new Error(
+      "La wallet no trajo una clave Stellar clásica (G…). No pude asociar la cuenta."
+    );
+  }
   const now = nowIso();
   await dbRun(
     `INSERT INTO users (phone, privy_user_id, privy_wallet_id, stellar_public_key, created_at, updated_at)
@@ -136,17 +168,17 @@ export async function upsertPrivyUser(
        privy_wallet_id = excluded.privy_wallet_id,
        stellar_public_key = excluded.stellar_public_key,
        updated_at = excluded.updated_at`,
-    phone,
+    key,
     privyUserId ?? null,
     privyWalletId,
-    stellarPublicKey,
+    pub,
     now,
     now
   );
   return {
-    phone,
+    phone: key,
     privyWalletId,
-    stellarPublicKey,
+    stellarPublicKey: pub,
     privyUserId: privyUserId ?? null,
   };
 }

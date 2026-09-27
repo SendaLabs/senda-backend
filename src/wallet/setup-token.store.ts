@@ -1,4 +1,5 @@
 import { randomBytes } from "crypto";
+import { normalizePhoneIdentity } from "../services/identity.service";
 import { dbGet, dbRun } from "../db/client";
 
 export const SETUP_TOKEN_TTL_MS = 30 * 60 * 1000;
@@ -60,12 +61,13 @@ export function maskPhone(phone: string): string {
 }
 
 export async function issueSetupToken(phone: string): Promise<SetupToken> {
+  const key = normalizePhoneIdentity(phone);
   const now = Date.now();
   const reusable = await dbGet<TokenRow>(
     `SELECT * FROM setup_tokens
      WHERE phone = ? AND used_at IS NULL AND expires_at > ?
      ORDER BY created_at DESC`,
-    phone,
+    key,
     new Date(now + 60_000).toISOString()
   );
   if (reusable) {
@@ -74,7 +76,7 @@ export async function issueSetupToken(phone: string): Promise<SetupToken> {
 
   const row: SetupToken = {
     token: randomBytes(12).toString("hex"),
-    phone,
+    phone: key,
     createdAt: new Date(now).toISOString(),
     expiresAt: new Date(now + SETUP_TOKEN_TTL_MS).toISOString(),
   };
