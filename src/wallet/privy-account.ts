@@ -11,13 +11,15 @@ export class WalletSetupRequiredError extends Error {
   }
 }
 
+const CLASSIC_STELLAR_PUBLIC_KEY = /^G[A-Z2-7]{55}$/;
+
 export function isLinkedPrivyUser(user: {
   privyWalletId?: string | null;
   stellarPublicKey?: string | null;
 } | null): boolean {
   const walletId = user?.privyWalletId?.trim();
-  const pub = user?.stellarPublicKey?.trim();
-  return Boolean(walletId && pub && pub.startsWith("G"));
+  const pub = user?.stellarPublicKey?.trim().toUpperCase() ?? "";
+  return Boolean(walletId && CLASSIC_STELLAR_PUBLIC_KEY.test(pub));
 }
 
 export async function resolvePrivyAccount(

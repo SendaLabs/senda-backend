@@ -153,6 +153,12 @@ export async function upsertPrivyUser(
   privyUserId?: string
 ): Promise<StoredUser> {
   const key = normalizePhoneIdentity(phone);
+  const walletId = privyWalletId.trim();
+  if (!walletId) {
+    throw new Error(
+      "Falta el id de la wallet de Privy. No pude asociar la cuenta."
+    );
+  }
   const pub = stellarPublicKey.trim().toUpperCase();
   if (!/^G[A-Z2-7]{55}$/.test(pub)) {
     throw new Error(
@@ -170,14 +176,14 @@ export async function upsertPrivyUser(
        updated_at = excluded.updated_at`,
     key,
     privyUserId ?? null,
-    privyWalletId,
+    walletId,
     pub,
     now,
     now
   );
   return {
     phone: key,
-    privyWalletId,
+    privyWalletId: walletId,
     stellarPublicKey: pub,
     privyUserId: privyUserId ?? null,
   };
@@ -191,7 +197,29 @@ export async function ensureUserRecord(
   if (existing) {
     return existing;
   }
-  return upsertPrivyUser(phone, "", stellarPublicKey);
+  const key = normalizePhoneIdentity(phone);
+  const pub = stellarPublicKey.trim().toUpperCase();
+  if (!/^G[A-Z2-7]{55}$/.test(pub)) {
+    throw new Error(
+      "La wallet no trajo una clave Stellar clásica (G…). No pude asociar la cuenta."
+    );
+  }
+  const now = nowIso();
+  // Custodial / pre-link row: never write an empty privy_wallet_id.
+  await dbRun(
+    `INSERT INTO users (phone, privy_user_id, privy_wallet_id, stellar_public_key, created_at, updated_at)
+     VALUES (?, NULL, NULL, ?, ?, ?)
+     ON CONFLICT(phone) DO NOTHING`,
+    key,
+    pub,
+    now,
+    now
+  );
+  const row = await findUserByPhone(key);
+  if (!row) {
+    throw new Error("No pude guardar el usuario.");
+  }
+  return row;
 }
 
 export async function createTransaction(input: {

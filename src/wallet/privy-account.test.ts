@@ -11,9 +11,36 @@ delete process.env.SUPABASE_DB_URL;
 
 const { upsertPrivyUser } = require("../db/users.repository") as typeof import("../db/users.repository");
 const {
+  isLinkedPrivyUser,
   resolvePrivyAccount,
   WalletSetupRequiredError,
 } = require("./privy-account") as typeof import("./privy-account");
+
+test("isLinkedPrivyUser exige wallet id y clave G clásica de 56", () => {
+  assert.equal(
+    isLinkedPrivyUser({
+      privyWalletId: "wallet_x",
+      stellarPublicKey: "GONLYPREFIX",
+    }),
+    false
+  );
+  assert.equal(
+    isLinkedPrivyUser({
+      privyWalletId: "",
+      stellarPublicKey:
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+    }),
+    false
+  );
+  assert.equal(
+    isLinkedPrivyUser({
+      privyWalletId: "wallet_x",
+      stellarPublicKey:
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+    }),
+    true
+  );
+});
 
 test("sin wallet vinculada no se crea nada en el server", async () => {
   await assert.rejects(
