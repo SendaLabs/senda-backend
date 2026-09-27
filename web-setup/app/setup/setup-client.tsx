@@ -13,6 +13,20 @@ import {
 
 type Screen = "loading" | "invalid" | "login" | "working" | "done" | "error";
 
+function isClassicStellarAddress(address: string): boolean {
+  return /^G[A-Z2-7]{55}$/i.test(address.trim());
+}
+
+function isDuplicateSignerError(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? `${error.name} ${error.message}`
+      : String(error ?? "");
+  return /duplicate|already\s+(exists|added|registered|present)|signer.*(exist|present|duplicate)|ALREADY_EXISTS|\b409\b/i.test(
+    message
+  );
+}
+
 function stellarWalletOf(user: {
   linkedAccounts?: Array<{
     type?: string;
@@ -21,7 +35,7 @@ function stellarWalletOf(user: {
     id?: string | null;
   }>;
 }): { address: string; id: string } | null {
-  const wallet = user.linkedAccounts?.find(
+  const stellar = (user.linkedAccounts ?? []).filter(
     (item) =>
       item.type === "wallet" &&
       (item.chainType === "stellar" ||
@@ -29,6 +43,9 @@ function stellarWalletOf(user: {
       item.address &&
       (item.id || (item as { walletId?: string }).walletId)
   );
+  const wallet =
+    stellar.find((item) => isClassicStellarAddress(item.address || "")) ||
+    stellar[0];
   const id =
     wallet?.id ||
     (wallet as { walletId?: string } | undefined)?.walletId ||
@@ -138,17 +155,30 @@ function SetupInner({
         };
       }
 
+      if (!isClassicStellarAddress(wallet.address)) {
+        throw new Error(
+          "Privy no devolvió una clave Stellar clásica (G…). Probá de nuevo o pedile a Senda otro link."
+        );
+      }
+
       // Keep Privy's address casing for addSigners; backend uppercases for Stellar G-keys.
       // Empty policyIds = full signer permission per Privy docs (omit broke some SDK builds).
-      await addSigners({
-        address: wallet.address,
-        signers: [
-          {
-            signerId,
-            policyIds: policyId ? [policyId] : [],
-          },
-        ],
-      });
+      // If the signer is already on the wallet, keep going and still link the account.
+      try {
+        await addSigners({
+          address: wallet.address,
+          signers: [
+            {
+              signerId,
+              policyIds: policyId ? [policyId] : [],
+            },
+          ],
+        });
+      } catch (signerError) {
+        if (!isDuplicateSignerError(signerError)) {
+          throw signerError;
+        }
+      }
 
       const res = await fetch(`${api}/api/link-wallet`, {
         method: "POST",
