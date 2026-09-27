@@ -2,6 +2,7 @@ import {
   askAmount,
   askCobroAmount,
   askMpAmount,
+  askSendRecipientText,
   askYieldSupplyAmount,
   askYieldWithdrawAmount,
   balanceHintText,
@@ -17,6 +18,8 @@ import {
   missingAmountText,
   mpProcessingText,
   mpReadyText,
+  payeeReceiptCaption,
+  returningGreetingText,
   sendDuplicateText,
   sendMaxText,
   sendProcessingText,
@@ -65,8 +68,13 @@ import {
   getUserOnChainState,
 } from "./stellar.service";
 import { transferUsdcFromWallet } from "./usdc.service";
-import { cobroChatCaption, cobroWhatsAppShareUrl } from "../qr/cobro-copy";
-import { extractCobroToken, issueCobro, peekCobro } from "../qr/cobro.store";
+import { cobroChatCaption } from "../qr/cobro-copy";
+import {
+  cobroPublicUrl,
+  extractCobroToken,
+  issueCobro,
+  peekCobro,
+} from "../qr/cobro.store";
 import {
   buildSendaCobroUri,
   parseSep7PayUri,
@@ -81,19 +89,22 @@ import {
   YieldDepositsBlockedError,
 } from "../yield/savings-service";
 import { isPositiveUsdcAmount } from "../yield/yield-book";
+import { findUserByPhone, findUserByPublicKey } from "../db/users.repository";
+import { isLinkedPrivyUser } from "../wallet/privy-account";
+import { buildCobroReceiptPdf } from "../receipt/cobro-receipt";
 import {
   parseSavingsReply,
   projectSavings,
   SAVINGS_MIN_USDC,
   suggestSavingsSlice,
 } from "../yield/savings-offer";
-import { findUserByPublicKey } from "../db/users.repository";
 import { normalizePhoneIdentity } from "./identity.service";
 import {
   logSafeError,
   sendWhatsAppCtaUrl,
   sendWhatsAppMessage,
   sendWhatsAppImage,
+  sendWhatsAppDocument,
   sendWhatsAppVideo,
   welcomeMenuText,
   welcomeVideoCaption,
@@ -274,6 +285,29 @@ async function sendWelcomeFlow(
   // WhatsApp entrega el texto antes que el video si van pegados.
   await sleep(2800);
   await sendMenu(to, name, locale);
+}
+
+/** Linked Privy users: short hello only — never re-run signup / welcome video. */
+async function sendReturningGreeting(
+  to: string,
+  name: string,
+  locale: Locale = "es"
+): Promise<void> {
+  await saveSession(to, name, { locale });
+  await sendWhatsAppMessage(to, returningGreetingText(name, locale));
+}
+
+async function greetLinkedOrWelcome(
+  to: string,
+  name: string,
+  locale: Locale = "es"
+): Promise<void> {
+  const linked = isLinkedPrivyUser(await findUserByPhone(to));
+  if (linked) {
+    await sendReturningGreeting(to, name, locale);
+    return;
+  }
+  await sendWelcomeFlow(to, name, locale);
 }
 
 async function startSendFlow(to: string, name: string): Promise<void> {
@@ -552,7 +586,7 @@ async function sendCobroLink(
     destination: user.publicKey,
     amount,
   });
-  const shareUrl = cobroWhatsAppShareUrl(cobro.token);
+  const shareUrl = cobroPublicUrl(cobro.token);
   const png = await renderSep7QrPng(shareUrl);
 
   await saveSession(to, name);
@@ -631,6 +665,25 @@ async function paySep7Link(
       payee &&
       normalizePhoneIdentity(payee.phone) !== normalizePhoneIdentity(to)
     ) {
+      if (result.txHash) {
+        try {
+          const pdf = await buildCobroReceiptPdf({
+            amountLabel: formatUsdcLabel(amount),
+            payerLabel: name.trim() || "Senda",
+            txHash: result.txHash,
+          });
+          await sendWhatsAppMessage(payee.phone, payeeReceiptCaption("es"));
+          await sendWhatsAppDocument(payee.phone, pdf, {
+            filename: "comprobante-senda.pdf",
+            mimeType: "application/pdf",
+          });
+        } catch (receiptError) {
+          logSafeError(
+            "Cobro: no pude mandar el PDF al cobrador; sigo con el chat",
+            receiptError
+          );
+        }
+      }
       await hydrateSession(payee.phone);
       const payeeName = getSession(payee.phone)?.name ?? "";
       await offerSavingsSlice(payee.phone, payeeName, amount, true).catch(
@@ -682,6 +735,10 @@ async function dispatchIntent(
       }
       await startSendFlow(to, name);
       return;
+    case "send_to_other":
+      await saveSession(to, name);
+      await sendWhatsAppMessage(to, askSendRecipientText(localeOf(to)));
+      return;
     case "withdraw_mp":
       await startMercadoPagoFlow(to, name, intent.amount);
       return;
@@ -725,7 +782,7 @@ async function dispatchIntent(
       return;
     case "menu":
       if (isGreeting(text)) {
-        await sendWelcomeFlow(to, name, localeOf(to));
+        await greetLinkedOrWelcome(to, name, localeOf(to));
         return;
       }
       await sendMenu(to, name, localeOf(to));
@@ -785,7 +842,7 @@ async function handleIncomingWhatsAppMessageInner(
   if (!session) {
     await saveSession(from, name, { locale });
     if (intent.type === "unknown" || intent.type === "menu") {
-      await sendWelcomeFlow(from, name, locale);
+      await greetLinkedOrWelcome(from, name, locale);
       return;
     }
 
@@ -810,6 +867,7 @@ async function handleIncomingWhatsAppMessageInner(
     intent.type === "yield_withdraw" ||
     intent.type === "cobro" ||
     intent.type === "sep7_pay" ||
+    intent.type === "send_to_other" ||
     (intent.type === "send" && intent.amount !== null && hasSendVerb(text))
   ) {
     await dispatchIntent(from, session.name, text, messageId);
