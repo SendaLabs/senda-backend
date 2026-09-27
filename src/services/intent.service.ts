@@ -80,10 +80,10 @@ const MERCADO_PAGO_RE =
   /\b(mercado\s*pago|mercadopago|cvu|alias|retirar a mi cuenta|a mi cuenta|retirar a mercado pago|pasar a mercado pago|move to mercado pago|withdraw to mercado pago)\b/;
 
 const YIELD_SUPPLY_RE =
-  /\b(poner a rendir|poner\s+\d+(?:[.,]\d+)?\s+a\s+rendir|invertir|hacer rendir|meter a rendir|a rendir|put to work|put\s+\d+(?:[.,]\d+)?\s+to\s+work|earn yield|start earning)\b/;
+  /\b(poner a rendir|poner\s+\d+(?:[.,]\d+)?\s+a\s+rendir|invertir|hacer rendir|meter a rendir|a rendir|apartar|aparte|dejar en (el |mi )?ahorro|set aside|put to work|put\s+\d+(?:[.,]\d+)?\s+to\s+work|earn yield|start earning)\b/;
 
 const YIELD_POSITION_RE =
-  /\b(cuanto tengo rindiendo|cuanto estoy rindiendo|cuanto rinde|mi rendimiento|lo que rinde|lo que esta rindiendo|how much is earning|my yield|what.?s earning)\b/;
+  /\b(cuanto tengo rindiendo|cuanto estoy rindiendo|cuanto rinde|cuanto tengo ahorrado|cuanto hay en mi ahorro|mi rendimiento|lo que rinde|lo que esta rindiendo|how much is earning|how much have i saved|my yield|what.?s earning)\b/;
 
 const YIELD_WITHDRAW_RE =
   /\b(sacar de rendir|sacar\s+\d+(?:[.,]\d+)?\s+de\s+rendir|retirar (de )?rendimiento|sacar (el )?rendimiento|dejar de rendir|take out of yield|take\s+\d+(?:[.,]\d+)?\s+out of yield|withdraw from yield)\b/;

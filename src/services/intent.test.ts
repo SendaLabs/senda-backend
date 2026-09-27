@@ -22,6 +22,11 @@ test("el guion del sábado entra a cada flujo", () => {
     type: "yield_supply",
     amount: 1,
   });
+  assert.deepEqual(classifyIntent("apartar 2"), {
+    type: "yield_supply",
+    amount: 2,
+  });
+  assert.equal(classifyIntent("cuanto tengo ahorrado").type, "yield_position");
   assert.equal(classifyIntent("cuanto tengo rindiendo").type, "yield_position");
   assert.deepEqual(classifyIntent("sacar 1 de rendir"), {
     type: "yield_withdraw",

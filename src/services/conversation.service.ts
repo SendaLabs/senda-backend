@@ -20,6 +20,10 @@ import {
   sendDuplicateText,
   sendMaxText,
   sendProcessingText,
+  savingsDeclinedText,
+  savingsMinText,
+  savingsOfferText,
+  savingsReplyHintText,
   sendReceiptText,
   startSendText,
   withdrawMaxText,
@@ -78,6 +82,14 @@ import {
 } from "../yield/savings-service";
 import { isPositiveUsdcAmount } from "../yield/yield-book";
 import {
+  parseSavingsReply,
+  projectSavings,
+  SAVINGS_MIN_USDC,
+  suggestSavingsSlice,
+} from "../yield/savings-offer";
+import { findUserByPublicKey } from "../db/users.repository";
+import { normalizePhoneIdentity } from "./identity.service";
+import {
   logSafeError,
   sendWhatsAppCtaUrl,
   sendWhatsAppMessage,
@@ -111,6 +123,72 @@ function formatUsdcLabel(amount: number): string {
     return String(amount);
   }
   return amount.toFixed(2).replace(/\.?0+$/, "");
+}
+
+async function offerSavingsSlice(
+  to: string,
+  name: string,
+  receivedUsdc: number,
+  justArrived: boolean
+): Promise<void> {
+  const slice = suggestSavingsSlice(receivedUsdc);
+  if (slice === null) {
+    return;
+  }
+  const locale = localeOf(to);
+  const projected = projectSavings(slice);
+  saveSession(to, name, {
+    step: ConversationStep.AWAITING_SAVINGS_OFFER,
+    pendingAmount: slice,
+    locale,
+  });
+  await sendWhatsAppMessage(
+    to,
+    savingsOfferText(
+      locale,
+      formatUsdcLabel(receivedUsdc),
+      formatUsdcLabel(slice),
+      formatUsdcLabel(projected),
+      justArrived
+    )
+  );
+}
+
+async function handleSavingsOfferReply(
+  to: string,
+  name: string,
+  text: string
+): Promise<void> {
+  const locale = localeOf(to);
+  const reply = parseSavingsReply(text);
+  const suggested = getSession(to)?.pendingAmount ?? null;
+
+  if (reply === "decline") {
+    saveSession(to, name);
+    await sendWhatsAppMessage(to, savingsDeclinedText(locale));
+    return;
+  }
+
+  if (reply === "accept") {
+    if (suggested === null) {
+      saveSession(to, name);
+      await sendWhatsAppMessage(to, savingsReplyHintText(locale));
+      return;
+    }
+    await startYieldSupplyFlow(to, name, suggested);
+    return;
+  }
+
+  if (typeof reply === "object") {
+    if (reply.amount < SAVINGS_MIN_USDC) {
+      await sendWhatsAppMessage(to, savingsMinText(locale));
+      return;
+    }
+    await startYieldSupplyFlow(to, name, reply.amount);
+    return;
+  }
+
+  await sendWhatsAppMessage(to, savingsReplyHintText(locale));
 }
 
 function guideUser(name: string, locale: Locale = "es"): string {
@@ -257,6 +335,14 @@ async function executeUsdcTransfer(
     try {
       await sendWhatsAppMessage(to, receipt);
       await clearPendingAck(to);
+      if (!result.duplicate) {
+        const received = Number(result.amountUsdc);
+        if (Number.isFinite(received)) {
+          await offerSavingsSlice(to, name, received, false).catch((error) =>
+            logSafeError("Oferta de ahorro", error)
+          );
+        }
+      }
     } catch (error) {
       await savePendingAck(to, receipt);
       throw error;
@@ -540,6 +626,17 @@ async function paySep7Link(
         result.txHash ? explorerTxUrl(result.txHash) : ""
       )
     );
+    const payee = await findUserByPublicKey(parsed.destination);
+    if (
+      payee &&
+      normalizePhoneIdentity(payee.phone) !== normalizePhoneIdentity(to)
+    ) {
+      await hydrateSession(payee.phone);
+      const payeeName = getSession(payee.phone)?.name ?? "";
+      await offerSavingsSlice(payee.phone, payeeName, amount, true).catch(
+        (error) => logSafeError("Oferta de ahorro al cobro", error)
+      );
+    }
   } catch (error) {
     logSafeError("Error al pagar SEP-7", error);
     await saveSession(to, name);
@@ -787,6 +884,11 @@ async function handleIncomingWhatsAppMessageInner(
       `web+stellar:pay?destination=${session.pendingDestination}&amount=${amount}`,
       amount
     );
+    return;
+  }
+
+  if (session.step === ConversationStep.AWAITING_SAVINGS_OFFER) {
+    await handleSavingsOfferReply(from, session.name, text);
     return;
   }
 

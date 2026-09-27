@@ -111,6 +111,16 @@ export async function findUserByPhone(
   return row ? mapUser(row) : null;
 }
 
+export async function findUserByPublicKey(
+  publicKey: string
+): Promise<StoredUser | null> {
+  const row = await dbGet<UserRow>(
+    "SELECT * FROM users WHERE stellar_public_key = ?",
+    publicKey
+  );
+  return row ? mapUser(row) : null;
+}
+
 export async function upsertPrivyUser(
   phone: string,
   privyWalletId: string,

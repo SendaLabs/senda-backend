@@ -102,8 +102,8 @@ export function balanceReadyText(locale: Locale, balance: string): string {
 
 export function balanceYieldingText(locale: Locale, yielding: string): string {
   return locale === "en"
-    ? `You also have ${yielding} earning yield. If you want it back, write "take ${yielding} out of yield".`
-    : `Además tenés ${yielding} rindiendo. Si los querés de vuelta, escribí «sacar ${yielding} de rendir».`;
+    ? `You also have ${yielding} set aside in savings. To move it back, write "take ${yielding} out of yield".`
+    : `Además tenés ${yielding} en tu ahorro. Si los necesitás, escribí «sacar ${yielding} de rendir».`;
 }
 
 export function balanceHintText(locale: Locale): string {
@@ -154,15 +154,15 @@ export function yieldSupplyReadyText(
 ): string {
   return locale === "en"
     ? [
-        `Done 📈 ${amount} dollars are now earning yield.`,
-        `That's about ${value} dollars in the pool.`,
+        `Done. ${amount} dollars are in your savings (about ${value} now).`,
+        `You can take them out whenever you need them.`,
         proof ? `Receipt: ${proof}` : "",
       ]
         .filter(Boolean)
         .join("\n")
     : [
-        `Listo 📈 Ya dejamos ${amount} dólares rindiendo.`,
-        `Ahí tenés aproximadamente ${value} dólares.`,
+        `Listo. Dejé ${amount} dólares en tu ahorro (quedaron unos ${value}).`,
+        `Los podés sacar cuando los necesites.`,
         proof ? `Comprobante: ${proof}` : "",
       ]
         .filter(Boolean)
@@ -184,14 +184,14 @@ export function yieldWithdrawReadyText(
   return locale === "en"
     ? [
         `Done. ${amount} dollars are back in your balance.`,
-        `You still have about ${remaining} dollars earning yield.`,
+        `You still have about ${remaining} dollars in savings.`,
         proof ? `Receipt: ${proof}` : "",
       ]
         .filter(Boolean)
         .join("\n")
     : [
         `Listo. Ya volvieron ${amount} dólares a tu saldo.`,
-        `Te quedan aproximadamente ${remaining} dólares rindiendo.`,
+        `Te quedan unos ${remaining} dólares en el ahorro.`,
         proof ? `Comprobante: ${proof}` : "",
       ]
         .filter(Boolean)
@@ -200,19 +200,19 @@ export function yieldWithdrawReadyText(
 
 export function yieldNoneText(locale: Locale): string {
   return locale === "en"
-    ? 'You don\'t have money earning yield right now. If you want to start, write "put 5 to work".'
-    : "No tenés plata rindiendo ahora. Si querés poner, escribí «poner 5 a rendir».";
+    ? 'You don\'t have savings set aside right now. When money comes in I\'ll ask, or write "set aside 2".'
+    : "Todavía no apartaste ahorro. Cuando te entre un cobro te voy a preguntar, o escribí «apartar 2».";
 }
 
 export function yieldPositionText(locale: Locale, value: string): string {
   return locale === "en"
     ? [
-        `What you left earning is now worth about ${value} dollars.`,
-        `That's your share of a shared Senda pool. To move it back to your balance, write "take ${value} out of yield".`,
+        `Your savings are about ${value} dollars.`,
+        `That money stays available. To move it back, write "take ${value} out of yield".`,
       ].join("\n")
     : [
-        `Lo que dejaste rindiendo ahora vale unos ${value} dólares.`,
-        `Es tu parte de un pozo compartido de Senda. Si querés volver a tu saldo, escribí «sacar ${value} de rendir».`,
+        `Tu ahorro está en unos ${value} dólares.`,
+        `Esa plata sigue disponible. Si la necesitás, escribí «sacar ${value} de rendir».`,
       ].join("\n");
 }
 
@@ -267,6 +267,51 @@ export function cobroPayNeedAmountText(locale: Locale): string {
   return locale === "en"
     ? "I didn't see an amount. Tell me how much you want to pay, for example 10."
     : "No vi un monto. Decime cuánto querés pagar, por ejemplo 10.";
+}
+
+export function savingsOfferText(
+  locale: Locale,
+  received: string,
+  slice: string,
+  projected: string,
+  justArrived: boolean
+): string {
+  if (locale === "en") {
+    const lead = justArrived
+      ? `${received} dollars just came in.`
+      : `Of the ${received} that just landed,`;
+    return [
+      lead,
+      `I can set aside ${slice} for your savings. If the pool stayed near 4% a year, in 5 years that would be about ${projected}. That's an estimate: the rate moves, and you can take the money out whenever you need it.`,
+      `Should I set them aside? Reply "yes" or "no".`,
+    ].join("\n");
+  }
+  const lead = justArrived
+    ? `Te llegaron ${received} dólares.`
+    : `De los ${received} que acaban de entrar,`;
+  return [
+    lead,
+    `puedo apartar ${slice} para tu ahorro. Si el pool siguiera cerca del 4% al año, en 5 años serían unos ${projected}. Es una estimación: la tasa cambia, y esa plata la podés sacar cuando la necesites.`,
+    `¿Los dejo en tu ahorro? Respondé «sí» o «no».`,
+  ].join("\n");
+}
+
+export function savingsDeclinedText(locale: Locale): string {
+  return locale === "en"
+    ? "Okay. I'll leave it in your balance, ready to use."
+    : "Dale. Lo dejo en tu saldo, listo para usar.";
+}
+
+export function savingsMinText(locale: Locale): string {
+  return locale === "en"
+    ? "The minimum to set aside is 2 dollars. Tell me another amount, or reply \"no\"."
+    : "El mínimo para apartar es 2 dólares. Decime otro monto, o respondé «no».";
+}
+
+export function savingsReplyHintText(locale: Locale): string {
+  return locale === "en"
+    ? 'Reply "yes", "no", or an amount like 2.'
+    : "Respondé «sí», «no», o un monto como 2.";
 }
 
 export function isAnyAmount(text: string): boolean {
