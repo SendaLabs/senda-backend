@@ -52,10 +52,11 @@ type WhatsAppOutgoingPayload = {
   recipient_type?: "individual";
   to?: string;
   recipient?: string;
-  type: "text" | "video" | "image" | "interactive";
+  type: "text" | "video" | "image" | "interactive" | "document";
   text?: { body: string };
   video?: { link?: string; id?: string; caption?: string };
   image?: { link?: string; id?: string; caption?: string };
+  document?: { id: string; caption?: string; filename?: string };
   interactive?: {
     type: "cta_url";
     body: { text: string };
@@ -70,11 +71,11 @@ export class WhatsAppSendError extends Error {
   readonly status?: number;
   readonly code?: number;
   readonly to: string;
-  readonly kind: "text" | "video" | "image" | "interactive";
+  readonly kind: "text" | "video" | "image" | "interactive" | "document";
 
   constructor(params: {
     to: string;
-    kind: "text" | "video" | "image" | "interactive";
+    kind: "text" | "video" | "image" | "interactive" | "document";
     status?: number;
     code?: number;
     message: string;
@@ -399,5 +400,46 @@ export async function sendWhatsAppImage(
     to,
     type: "image",
     image: caption ? { id: data.id, caption } : { id: data.id },
+  });
+}
+
+export async function sendWhatsAppDocument(
+  to: string,
+  document: Buffer,
+  options?: {
+    caption?: string;
+    filename?: string;
+    mimeType?: string;
+  }
+): Promise<WhatsAppMessageResponse> {
+  const { token, phoneNumberId } = getWhatsAppConfig();
+  const filename = options?.filename ?? "comprobante-senda.pdf";
+  const mimeType = options?.mimeType ?? "application/pdf";
+  const form = new FormData();
+  form.append("messaging_product", "whatsapp");
+  form.append("type", "document");
+  form.append("file", new Blob([document], { type: mimeType }), filename);
+
+  const { data } = await axios.post<{ id?: string }>(
+    `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/media`,
+    form,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      maxBodyLength: 8 * 1024 * 1024,
+    }
+  );
+  if (!data.id) {
+    throw new Error("Meta no devolvió id de media para el documento");
+  }
+
+  return postWhatsAppMessage({
+    messaging_product: "whatsapp",
+    to,
+    type: "document",
+    document: {
+      id: data.id,
+      filename,
+      ...(options?.caption ? { caption: options.caption } : {}),
+    },
   });
 }
