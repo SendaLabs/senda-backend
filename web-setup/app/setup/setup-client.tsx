@@ -17,14 +17,82 @@ function isClassicStellarAddress(address: string): boolean {
   return /^G[A-Z2-7]{55}$/i.test(address.trim());
 }
 
+function collectErrorText(error: unknown, depth = 0): string {
+  if (depth > 6 || error == null) {
+    return "";
+  }
+  if (typeof error === "string" || typeof error === "number") {
+    return String(error);
+  }
+  if (error instanceof Error) {
+    const cause = collectErrorText(
+      (error as Error & { cause?: unknown }).cause,
+      depth + 1
+    );
+    return [error.name, error.message, cause].filter(Boolean).join(" ");
+  }
+  if (typeof error === "object") {
+    const record = error as Record<string, unknown>;
+    return ["message", "code", "error", "error_code", "status", "detail", "data"]
+      .map((key) => collectErrorText(record[key], depth + 1))
+      .filter(Boolean)
+      .join(" ");
+  }
+  return "";
+}
+
 function isDuplicateSignerError(error: unknown): boolean {
-  const message =
-    error instanceof Error
-      ? `${error.name} ${error.message}`
-      : String(error ?? "");
+  const message = collectErrorText(error);
   return /duplicate|already\s+(exists|added|registered|present)|signer.*(exist|present|duplicate)|ALREADY_EXISTS|\b409\b/i.test(
     message
   );
+}
+
+function walletAlreadyHasSigner(
+  user: {
+    linkedAccounts?: Array<Record<string, unknown>>;
+    wallet?: Record<string, unknown> | null;
+  } | null,
+  walletAddress: string,
+  signerId: string
+): boolean {
+  if (!user || !signerId) {
+    return false;
+  }
+  const needle = signerId.toLowerCase();
+  const addr = walletAddress.toLowerCase();
+  const bags: unknown[] = [user.wallet, ...(user.linkedAccounts ?? [])];
+  for (const bag of bags) {
+    if (!bag || typeof bag !== "object") {
+      continue;
+    }
+    const row = bag as Record<string, unknown>;
+    const rowAddr = String(row.address ?? "").toLowerCase();
+    if (rowAddr && rowAddr !== addr) {
+      continue;
+    }
+    const signers = (row.signers ??
+      row.authorizedSigners ??
+      (row as { additional_signers?: unknown }).additional_signers) as
+      | unknown[]
+      | undefined;
+    if (!Array.isArray(signers)) {
+      continue;
+    }
+    for (const signer of signers) {
+      if (typeof signer === "string" && signer.toLowerCase() === needle) {
+        return true;
+      }
+      if (signer && typeof signer === "object") {
+        const s = signer as Record<string, unknown>;
+        const id = String(s.signerId ?? s.id ?? s.address ?? "").toLowerCase();
+        if (id && id === needle) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
 }
 
 function stellarWalletOf(user: {
@@ -163,20 +231,22 @@ function SetupInner({
 
       // Keep Privy's address casing for addSigners; backend uppercases for Stellar G-keys.
       // Empty policyIds = full signer permission per Privy docs (omit broke some SDK builds).
-      // If the signer is already on the wallet, keep going and still link the account.
-      try {
-        await addSigners({
-          address: wallet.address,
-          signers: [
-            {
-              signerId,
-              policyIds: policyId ? [policyId] : [],
-            },
-          ],
-        });
-      } catch (signerError) {
-        if (!isDuplicateSignerError(signerError)) {
-          throw signerError;
+      // If the signer is already on the wallet, skip addSigners and still link.
+      if (!walletAlreadyHasSigner(user, wallet.address, signerId)) {
+        try {
+          await addSigners({
+            address: wallet.address,
+            signers: [
+              {
+                signerId,
+                policyIds: policyId ? [policyId] : [],
+              },
+            ],
+          });
+        } catch (signerError) {
+          if (!isDuplicateSignerError(signerError)) {
+            throw signerError;
+          }
         }
       }
 
