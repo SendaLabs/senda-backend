@@ -106,18 +106,34 @@ export function mountSetupRoutes(app: Express): void {
     }
 
     try {
-      // Consume first (atomic) so a double-submit cannot link twice.
-      const row = await consumeSetupToken(token);
-      await upsertPrivyUser(row.phone, walletId, walletAddress, privyUserId);
-      await hydrateSession(row.phone);
+      // Upsert first so a DB failure does not burn the only setup link.
+      const peeked = await peekSetupToken(token);
+      if (!peeked) {
+        throw new Error(
+          "Ese enlace de alta ya no sirve. Pedime uno nuevo por WhatsApp."
+        );
+      }
+      await upsertPrivyUser(
+        peeked.phone,
+        walletId,
+        walletAddress,
+        privyUserId
+      );
+      try {
+        await consumeSetupToken(token);
+      } catch (consumeError) {
+        // Parallel success already linked the same phone; keep going.
+        logSafeError("Alta: token ya consumido tras asociar wallet", consumeError);
+      }
+      await hydrateSession(peeked.phone);
       res.json({
         ok: true,
-        phoneHint: maskPhone(row.phone),
+        phoneHint: maskPhone(peeked.phone),
         walletAddress,
       });
       void sendWhatsAppMessage(
-        row.phone,
-        buildSetupReadyMessage(getSession(row.phone)?.locale ?? "es")
+        peeked.phone,
+        buildSetupReadyMessage(getSession(peeked.phone)?.locale ?? "es")
       ).catch(
         (error) => logSafeError("Alta: no pude avisar por WhatsApp", error)
       );
