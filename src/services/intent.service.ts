@@ -3,6 +3,7 @@ import { detectLocale } from "../i18n/locale";
 export type UserIntent =
   | { type: "balance" }
   | { type: "send"; amount: number | null }
+  | { type: "send_to_other"; amount: number | null }
   | { type: "withdraw_mp"; amount: number | null }
   | { type: "yield_supply"; amount: number | null }
   | { type: "yield_position" }
@@ -256,6 +257,47 @@ export function hasSendVerb(text: string): boolean {
   return SEND_RE.test(normalizeText(text));
 }
 
+/** True when the user wants to pay someone else but gave no CVU/alias/phone/G-key. */
+export function mentionsThirdPartyRecipient(text: string): boolean {
+  const n = normalizeText(text);
+  if (
+    /\b(mercado\s*pago|mercadopago|mi\s+cuenta|my\s+account|a\s+rendir|to\s+work)\b/.test(
+      n
+    )
+  ) {
+    return false;
+  }
+  if (hasExplicitPaymentDestination(text)) {
+    return false;
+  }
+  const familyEs =
+    /\b(?:a|para)\s+(?:mi\s+|la\s+|el\s+)?(?:mama|papa|tia|tio|hermana|hermano|amigo|amiga|esposa|esposo|novia|novio|mujer|marido|hija|hijo|prima|primo|abuela|abuelo)\b/;
+  const familyEn =
+    /\b(?:to|for)\s+(?:my\s+)?(?:mom|mum|dad|aunt|uncle|sister|brother|friend|wife|husband|daughter|son)\b/;
+  const someone = /\b(?:a|para|to|for)\s+(?:alguien|someone|somebody)\b/;
+  const named =
+    /\b(?:a|para)\s+(?!mi\b|la\b|el\b|los\b|las\b|un\b|una\b|me\b|te\b|se\b|lo\b|le\b|les\b|quien\b|alguien\b|rendir\b|mercado\b|traves\b)[a-z]{3,}\b/;
+  return familyEs.test(n) || familyEn.test(n) || someone.test(n) || named.test(n);
+}
+
+export function hasExplicitPaymentDestination(text: string): boolean {
+  const compact = text.replace(/\s+/g, "");
+  if (/G[A-Z2-7]{55}/i.test(compact)) {
+    return true;
+  }
+  const n = normalizeText(text);
+  if (/\b\d{22}\b/.test(n)) {
+    return true;
+  }
+  if (/\b(?:cvu|cbu|alias)\b/.test(n)) {
+    return true;
+  }
+  if (/\/c\/[a-f0-9]{16,64}/i.test(text)) {
+    return true;
+  }
+  return false;
+}
+
 export function classifyIntent(text: string): UserIntent {
   const raw = text.trim();
   const normalized = normalizeText(raw);
@@ -334,20 +376,29 @@ export function classifyIntent(text: string): UserIntent {
   }
 
   if (hasSend && hasBalance) {
-    if (amount !== null) {
-      return { type: "send", amount };
-    }
     if (/\b(saldo|cuanto|cuantos|balance|tengo)\b/.test(normalized)) {
       return { type: "balance" };
+    }
+    if (mentionsThirdPartyRecipient(raw)) {
+      return { type: "send_to_other", amount };
+    }
+    if (amount !== null) {
+      return { type: "send", amount };
     }
     return { type: "send", amount: null };
   }
 
   if (hasSend) {
+    if (mentionsThirdPartyRecipient(raw)) {
+      return { type: "send_to_other", amount };
+    }
     return { type: "send", amount };
   }
 
   if (wantsAction && amount !== null && !hasBalance) {
+    if (mentionsThirdPartyRecipient(raw)) {
+      return { type: "send_to_other", amount };
+    }
     return { type: "send", amount };
   }
 

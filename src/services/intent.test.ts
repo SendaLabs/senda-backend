@@ -69,3 +69,14 @@ test("un monto suelto no se acredita como envío", () => {
   assert.equal(classifyIntent("20").type, "unknown");
   assert.equal(extractUsdAmount("5"), 5);
 });
+
+test("enviar a un tercero pide destinatario y no acredita", () => {
+  assert.equal(classifyIntent("quiero enviar dinero a mi mamá").type, "send_to_other");
+  assert.equal(classifyIntent("quiero enviar dinero a mi tía").type, "send_to_other");
+  assert.equal(classifyIntent("quiero enviar dinero a Juan").type, "send_to_other");
+  assert.deepEqual(classifyIntent("mandar 10 a mi mamá"), {
+    type: "send_to_other",
+    amount: 10,
+  });
+  assert.deepEqual(classifyIntent("mandar 5"), { type: "send", amount: 5 });
+});
