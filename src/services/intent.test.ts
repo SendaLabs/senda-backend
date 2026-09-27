@@ -74,6 +74,9 @@ test("enviar a un tercero pide destinatario y no acredita", () => {
   assert.equal(classifyIntent("quiero enviar dinero a mi mamá").type, "send_to_other");
   assert.equal(classifyIntent("quiero enviar dinero a mi tía").type, "send_to_other");
   assert.equal(classifyIntent("quiero enviar dinero a Juan").type, "send_to_other");
+  assert.equal(classifyIntent("send 10 to mami").type, "send_to_other");
+  assert.equal(classifyIntent("mandar 5 a mami").type, "send_to_other");
+  assert.equal(classifyIntent("send 3 for Juan").type, "send_to_other");
   assert.deepEqual(classifyIntent("mandar 10 a mi mamá"), {
     type: "send_to_other",
     amount: 10,

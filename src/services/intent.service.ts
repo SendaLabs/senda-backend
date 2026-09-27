@@ -271,13 +271,24 @@ export function mentionsThirdPartyRecipient(text: string): boolean {
     return false;
   }
   const familyEs =
-    /\b(?:a|para)\s+(?:mi\s+|la\s+|el\s+)?(?:mama|papa|tia|tio|hermana|hermano|amigo|amiga|esposa|esposo|novia|novio|mujer|marido|hija|hijo|prima|primo|abuela|abuelo)\b/;
+    /\b(?:a|para)\s+(?:mi\s+|la\s+|el\s+)?(?:mama|mami|papa|papi|tia|tio|hermana|hermano|amigo|amiga|esposa|esposo|novia|novio|mujer|marido|hija|hijo|prima|primo|abuela|abuelo)\b/;
   const familyEn =
-    /\b(?:to|for)\s+(?:my\s+)?(?:mom|mum|dad|aunt|uncle|sister|brother|friend|wife|husband|daughter|son)\b/;
+    /\b(?:to|for)\s+(?:my\s+)?(?:mom|mum|mami|mommy|dad|daddy|papi|aunt|uncle|sister|brother|friend|wife|husband|daughter|son)\b/;
+  const nick =
+    /\b(?:a|para|to|for)\s+(?:mi\s+|my\s+)?(?:mami|papi|mommy|daddy)\b/;
   const someone = /\b(?:a|para|to|for)\s+(?:alguien|someone|somebody)\b/;
-  const named =
+  const namedEs =
     /\b(?:a|para)\s+(?!mi\b|la\b|el\b|los\b|las\b|un\b|una\b|me\b|te\b|se\b|lo\b|le\b|les\b|quien\b|alguien\b|rendir\b|mercado\b|traves\b)[a-z]{3,}\b/;
-  return familyEs.test(n) || familyEn.test(n) || someone.test(n) || named.test(n);
+  const namedEn =
+    /\b(?:to|for)\s+(?!my\b|the\b|a\b|an\b|me\b|you\b|us\b|them\b|work\b|rendir\b)[a-z]{3,}\b/;
+  return (
+    familyEs.test(n) ||
+    familyEn.test(n) ||
+    nick.test(n) ||
+    someone.test(n) ||
+    namedEs.test(n) ||
+    namedEn.test(n)
+  );
 }
 
 export function hasExplicitPaymentDestination(text: string): boolean {

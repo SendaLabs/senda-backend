@@ -316,6 +316,114 @@ async function startSendFlow(to: string, name: string): Promise<void> {
   await sendWhatsAppMessage(to, startSendText(locale));
 }
 
+/** Never self-credit: ask for a real destination before moving money. */
+async function askForSendDestination(
+  to: string,
+  name: string,
+  amount: number | null
+): Promise<void> {
+  const locale = localeOf(to);
+  await saveSession(to, name, {
+    step: ConversationStep.AWAITING_SEND_DESTINATION,
+    pendingAmount: amount ?? undefined,
+  });
+  await sendWhatsAppMessage(to, askSendRecipientText(locale));
+}
+
+async function handleSendDestination(
+  to: string,
+  name: string,
+  text: string,
+  amount: number
+): Promise<void> {
+  const locale = localeOf(to);
+  if (
+    /web\+stellar:pay\?/i.test(text) ||
+    /\/c\/[a-f0-9]{16,64}/i.test(text)
+  ) {
+    await paySep7Link(to, name, text, amount);
+    return;
+  }
+
+  const compact = text.replace(/\s+/g, "");
+  const gKey = compact.match(/G[A-Z2-7]{55}/i)?.[0]?.toUpperCase();
+  if (gKey) {
+    const payer = await getOrCreateUserAccount(to);
+    if (gKey === payer.publicKey.toUpperCase()) {
+      await askForSendDestination(to, name, amount);
+      return;
+    }
+    await sendWhatsAppMessage(
+      to,
+      cobroPayingText(locale, formatUsdcLabel(amount))
+    );
+    try {
+      const result = await withPhoneLock(to, () =>
+        transferUsdcFromWallet(payer, gKey, amount)
+      );
+      await saveSession(to, name);
+      await sendWhatsAppMessage(
+        to,
+        cobroPaidText(
+          locale,
+          result.amountUsdc,
+          result.balanceUsdc,
+          result.txHash ? explorerTxUrl(result.txHash) : ""
+        )
+      );
+    } catch (error) {
+      logSafeError("Error al enviar a clave G", error);
+      await saveSession(to, name, {
+        step: ConversationStep.AWAITING_SEND_DESTINATION,
+        pendingAmount: amount,
+      });
+      await sendWhatsAppMessage(to, humanizeLedgerError(error));
+    }
+    return;
+  }
+
+  const digits = text.replace(/\D/g, "");
+  if (digits.length >= 10) {
+    const payee = await findUserByPhone(digits);
+    if (
+      payee?.stellarPublicKey &&
+      normalizePhoneIdentity(payee.phone) !== normalizePhoneIdentity(to)
+    ) {
+      const payer = await getOrCreateUserAccount(to);
+      await sendWhatsAppMessage(
+        to,
+        cobroPayingText(locale, formatUsdcLabel(amount))
+      );
+      try {
+        const result = await withPhoneLock(to, () =>
+          transferUsdcFromWallet(payer, payee.stellarPublicKey, amount)
+        );
+        await saveSession(to, name);
+        await sendWhatsAppMessage(
+          to,
+          cobroPaidText(
+            locale,
+            result.amountUsdc,
+            result.balanceUsdc,
+            result.txHash ? explorerTxUrl(result.txHash) : ""
+          )
+        );
+      } catch (error) {
+        logSafeError("Error al enviar a usuario Senda", error);
+        await saveSession(to, name, {
+          step: ConversationStep.AWAITING_SEND_DESTINATION,
+          pendingAmount: amount,
+        });
+        await sendWhatsAppMessage(to, humanizeLedgerError(error));
+      }
+      return;
+    }
+  }
+
+  // CVU/alias alone still isn't a Stellar destination we can pay from chat.
+  await askForSendDestination(to, name, amount);
+}
+
 async function executeUsdcTransfer(
   to: string,
   name: string,
@@ -392,7 +500,7 @@ async function handleUsdAmount(
   to: string,
   name: string,
   text: string,
-  messageId?: string
+  _messageId?: string
 ): Promise<void> {
   const usdAmount = extractUsdAmount(text);
   if (usdAmount === null) {
@@ -403,7 +511,7 @@ async function handleUsdAmount(
     return;
   }
 
-  await executeUsdcTransfer(to, name, usdAmount, messageId);
+  await askForSendDestination(to, name, usdAmount);
 }
 
 async function handleBalanceQuery(to: string, name: string): Promise<void> {
@@ -730,14 +838,17 @@ async function dispatchIntent(
       return;
     case "send":
       if (intent.amount !== null) {
-        await executeUsdcTransfer(to, name, intent.amount, messageId);
+        await askForSendDestination(to, name, intent.amount);
         return;
       }
       await startSendFlow(to, name);
       return;
     case "send_to_other":
-      await saveSession(to, name);
-      await sendWhatsAppMessage(to, askSendRecipientText(localeOf(to)));
+      if (intent.amount !== null) {
+        await askForSendDestination(to, name, intent.amount);
+        return;
+      }
+      await startSendFlow(to, name);
       return;
     case "withdraw_mp":
       await startMercadoPagoFlow(to, name, intent.amount);
@@ -876,6 +987,16 @@ async function handleIncomingWhatsAppMessageInner(
 
   if (session.step === ConversationStep.AWAITING_USD_AMOUNT) {
     await handleUsdAmount(from, session.name, text, messageId);
+    return;
+  }
+
+  if (session.step === ConversationStep.AWAITING_SEND_DESTINATION) {
+    const amount = session.pendingAmount;
+    if (amount === undefined || !Number.isFinite(amount) || amount <= 0) {
+      await startSendFlow(from, session.name);
+      return;
+    }
+    await handleSendDestination(from, session.name, text, amount);
     return;
   }
 
