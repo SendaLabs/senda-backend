@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from "express";
-import { peekCobro } from "./cobro.store";
-import { cobroWhatsAppShareUrl, formatCobroAmount } from "./cobro-copy";
+import { cobroPublicUrl, peekCobro } from "./cobro.store";
+import { cobroWhatsAppPayUrl, formatCobroAmount } from "./cobro-copy";
 import { renderSep7QrPng } from "./sep7";
 
 function escapeHtml(value: string): string {
@@ -20,12 +20,13 @@ function cobroHeading(amount?: number): string {
 
 export function mountCobroRoutes(app: Express): void {
   app.get("/c/:token/qr.png", async (req: Request, res: Response) => {
-    const row = await peekCobro(String(req.params.token ?? ""));
+    const token = String(req.params.token ?? "");
+    const row = await peekCobro(token);
     if (!row) {
       res.sendStatus(404);
       return;
     }
-    const png = await renderSep7QrPng(cobroWhatsAppShareUrl(String(req.params.token)));
+    const png = await renderSep7QrPng(cobroPublicUrl(token));
     res.setHeader("Content-Type", "image/png");
     res.setHeader("Cache-Control", "no-store");
     res.send(png);
@@ -45,7 +46,7 @@ export function mountCobroRoutes(app: Express): void {
     }
 
     const title = cobroHeading(row.amount);
-    const payHref = escapeHtml(cobroWhatsAppShareUrl(token));
+    const payHref = escapeHtml(cobroWhatsAppPayUrl(cobroPublicUrl(token)));
     res.type("html").send(`<!doctype html>
 <html lang="es">
 <head>

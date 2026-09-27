@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { Keypair } from "@stellar/stellar-sdk";
 import {
   cobroChatCaption,
+  cobroShareLink,
   cobroWalletMsg,
   cobroWhatsAppPayUrl,
   cobroWhatsAppShareUrl,
@@ -59,11 +60,13 @@ test("el URI de cobro lleva un mensaje en español, no el default en inglés", (
 test("el boton Pagar abre WhatsApp, no un enlace web+stellar", () => {
   const previous = process.env.WHATSAPP_CLICK_TO_CHAT;
   process.env.WHATSAPP_CLICK_TO_CHAT = "15556186469";
-  const url = cobroWhatsAppShareUrl("aabbcc");
+  const base = "https://senda-backend-2r5k.onrender.com";
+  const url = cobroWhatsAppShareUrl("aabbcc", base);
   assert.match(url, /^https:\/\/wa\.me\/15556186469\?text=/);
-  assert.doesNotMatch(url, /onrender\.com/);
+  assert.match(decodeURIComponent(url), /https:\/\/senda-backend-2r5k\.onrender\.com\/c\/aabbcc/);
   assert.equal(/web\+stellar/i.test(url), false);
   assert.equal(cobroWhatsAppPayUrl("/c/aabbcc").includes("wa.me"), true);
+  assert.equal(cobroShareLink("aabbcc", base), `${base}/c/aabbcc`);
   if (previous === undefined) delete process.env.WHATSAPP_CLICK_TO_CHAT;
   else process.env.WHATSAPP_CLICK_TO_CHAT = previous;
 });
@@ -73,13 +76,17 @@ test("reconoce el enlace corto de cobro", () => {
     extractCobroToken("pagame /c/aabbccddeeff00112233445566778899"),
     "aabbccddeeff00112233445566778899"
   );
+  assert.equal(
+    extractCobroToken(
+      "https://senda-backend-2r5k.onrender.com/c/aabbccddeeff00112233445566778899"
+    ),
+    "aabbccddeeff00112233445566778899"
+  );
 });
 
 test("el QR puede guardar un enlace https que la cámara sí lee", async () => {
-  const previous = process.env.WHATSAPP_CLICK_TO_CHAT;
-  process.env.WHATSAPP_CLICK_TO_CHAT = "15556186469";
-  const png = await renderSep7QrPng(cobroWhatsAppShareUrl("aabbccdd"));
+  const png = await renderSep7QrPng(
+    cobroShareLink("aabbccdd", "https://senda-backend-2r5k.onrender.com")
+  );
   assert.equal(png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])), true);
-  if (previous === undefined) delete process.env.WHATSAPP_CLICK_TO_CHAT;
-  else process.env.WHATSAPP_CLICK_TO_CHAT = previous;
 });

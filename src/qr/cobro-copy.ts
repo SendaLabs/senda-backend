@@ -48,6 +48,13 @@ export function cobroWhatsAppPayUrl(shareUrl: string): string {
   return `${base}?text=${encodeURIComponent(shareUrl)}`;
 }
 
-export function cobroWhatsAppShareUrl(token: string): string {
-  return cobroWhatsAppPayUrl(`/c/${token}`);
+/** https://…/c/:token — usable in a browser / camera QR (not a bare path). */
+export function cobroShareLink(token: string, publicBaseUrl: string): string {
+  const base = publicBaseUrl.replace(/\/$/, "");
+  return `${base}/c/${token}`;
+}
+
+/** WhatsApp deep link whose prefilled text is the https cobro URL. */
+export function cobroWhatsAppShareUrl(token: string, publicBaseUrl: string): string {
+  return cobroWhatsAppPayUrl(cobroShareLink(token, publicBaseUrl));
 }
