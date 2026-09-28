@@ -2,9 +2,13 @@ import {
   askAmount,
   askCobroAmount,
   askMpAmount,
+  askSendGotRailText,
+  askSendHowToPayNamedText,
+  askSendPhoneNotOnSendaText,
   askSendRecipientText,
   askYieldSupplyAmount,
   askYieldWithdrawAmount,
+  maskDestinationPhone,
   balanceHintText,
   balanceReadyText,
   balanceYieldingText,
@@ -50,8 +54,11 @@ import {
 } from "./session.service";
 import {
   classifyIntent,
+  extractDestinationPhone,
+  extractRecipientName,
   extractUsdAmount,
   hasSendVerb,
+  looksLikeCvuOrAlias,
   normalizeText,
 } from "./intent.service";
 import { humanizeLedgerError } from "./ledger-error.service";
@@ -330,6 +337,106 @@ async function askForSendDestination(
   await sendWhatsAppMessage(to, askSendRecipientText(locale));
 }
 
+async function notifyPayeeAfterTransfer(input: {
+  payerPhone: string;
+  payerName: string;
+  payeePhone: string;
+  amount: number;
+  txHash?: string;
+}): Promise<void> {
+  if (
+    normalizePhoneIdentity(input.payeePhone) ===
+    normalizePhoneIdentity(input.payerPhone)
+  ) {
+    return;
+  }
+  if (input.txHash) {
+    try {
+      const pdf = await buildCobroReceiptPdf({
+        amountLabel: formatUsdcLabel(input.amount),
+        payerLabel: input.payerName.trim() || "Senda",
+        txHash: input.txHash,
+      });
+      await sendWhatsAppMessage(input.payeePhone, payeeReceiptCaption("es"));
+      await sendWhatsAppDocument(input.payeePhone, pdf, {
+        filename: "comprobante-senda.pdf",
+        mimeType: "application/pdf",
+      });
+    } catch (receiptError) {
+      logSafeError(
+        "P2P: no pude mandar el PDF al destinatario; sigo con el chat",
+        receiptError
+      );
+    }
+  }
+  await hydrateSession(input.payeePhone);
+  const payeeName = getSession(input.payeePhone)?.name ?? "";
+  await offerSavingsSlice(input.payeePhone, payeeName, input.amount, true).catch(
+    (error) => logSafeError("Oferta de ahorro al cobro", error)
+  );
+}
+
+async function payStellarDestination(
+  to: string,
+  name: string,
+  amount: number,
+  destination: string,
+  payeePhone?: string
+): Promise<void> {
+  const locale = localeOf(to);
+  const payer = await getOrCreateUserAccount(to);
+  if (destination.toUpperCase() === payer.publicKey.toUpperCase()) {
+    await askForSendDestination(to, name, amount);
+    return;
+  }
+  await sendWhatsAppMessage(
+    to,
+    cobroPayingText(locale, formatUsdcLabel(amount))
+  );
+  try {
+    const result = await withPhoneLock(to, () =>
+      transferUsdcFromWallet(payer, destination, amount)
+    );
+    await saveSession(to, name);
+    await sendWhatsAppMessage(
+      to,
+      cobroPaidText(
+        locale,
+        result.amountUsdc,
+        result.balanceUsdc,
+        result.txHash ? explorerTxUrl(result.txHash) : ""
+      )
+    );
+    if (payeePhone) {
+      await notifyPayeeAfterTransfer({
+        payerPhone: to,
+        payerName: name,
+        payeePhone,
+        amount,
+        txHash: result.txHash,
+      });
+    } else {
+      const payee = await findUserByPublicKey(destination);
+      if (payee?.phone) {
+        await notifyPayeeAfterTransfer({
+          payerPhone: to,
+          payerName: name,
+          payeePhone: payee.phone,
+          amount,
+          txHash: result.txHash,
+        });
+      }
+    }
+  } catch (error) {
+    logSafeError("Error al enviar USDC", error);
+    await saveSession(to, name, {
+      step: ConversationStep.AWAITING_SEND_DESTINATION,
+      pendingAmount: amount,
+    });
+    await sendWhatsAppMessage(to, humanizeLedgerError(error));
+  }
+}
+
 async function handleSendDestination(
   to: string,
   name: string,
@@ -337,6 +444,7 @@ async function handleSendDestination(
   amount: number
 ): Promise<void> {
   const locale = localeOf(to);
+  const session = getSession(to);
   if (
     /web\+stellar:pay\?/i.test(text) ||
     /\/c\/[a-f0-9]{16,64}/i.test(text)
@@ -348,79 +456,76 @@ async function handleSendDestination(
   const compact = text.replace(/\s+/g, "");
   const gKey = compact.match(/G[A-Z2-7]{55}/i)?.[0]?.toUpperCase();
   if (gKey) {
-    const payer = await getOrCreateUserAccount(to);
-    if (gKey === payer.publicKey.toUpperCase()) {
-      await askForSendDestination(to, name, amount);
-      return;
-    }
-    await sendWhatsAppMessage(
-      to,
-      cobroPayingText(locale, formatUsdcLabel(amount))
-    );
-    try {
-      const result = await withPhoneLock(to, () =>
-        transferUsdcFromWallet(payer, gKey, amount)
-      );
-      await saveSession(to, name);
-      await sendWhatsAppMessage(
-        to,
-        cobroPaidText(
-          locale,
-          result.amountUsdc,
-          result.balanceUsdc,
-          result.txHash ? explorerTxUrl(result.txHash) : ""
-        )
-      );
-    } catch (error) {
-      logSafeError("Error al enviar a clave G", error);
-      await saveSession(to, name, {
-        step: ConversationStep.AWAITING_SEND_DESTINATION,
-        pendingAmount: amount,
-      });
-      await sendWhatsAppMessage(to, humanizeLedgerError(error));
-    }
+    await payStellarDestination(to, name, amount, gKey);
     return;
   }
 
-  const digits = text.replace(/\D/g, "");
-  if (digits.length >= 10) {
-    const payee = await findUserByPhone(digits);
-    if (
-      payee?.stellarPublicKey &&
-      normalizePhoneIdentity(payee.phone) !== normalizePhoneIdentity(to)
-    ) {
-      const payer = await getOrCreateUserAccount(to);
-      await sendWhatsAppMessage(
-        to,
-        cobroPayingText(locale, formatUsdcLabel(amount))
-      );
-      try {
-        const result = await withPhoneLock(to, () =>
-          transferUsdcFromWallet(payer, payee.stellarPublicKey, amount)
-        );
-        await saveSession(to, name);
-        await sendWhatsAppMessage(
-          to,
-          cobroPaidText(
-            locale,
-            result.amountUsdc,
-            result.balanceUsdc,
-            result.txHash ? explorerTxUrl(result.txHash) : ""
-          )
-        );
-      } catch (error) {
-        logSafeError("Error al enviar a usuario Senda", error);
-        await saveSession(to, name, {
-          step: ConversationStep.AWAITING_SEND_DESTINATION,
-          pendingAmount: amount,
-        });
-        await sendWhatsAppMessage(to, humanizeLedgerError(error));
-      }
+  const digits = extractDestinationPhone(text);
+  if (digits) {
+    if (normalizePhoneIdentity(digits) === normalizePhoneIdentity(to)) {
+      await askForSendDestination(to, name, amount);
       return;
     }
+    const payee = await findUserByPhone(digits);
+    if (payee?.stellarPublicKey) {
+      await payStellarDestination(
+        to,
+        name,
+        amount,
+        payee.stellarPublicKey,
+        payee.phone
+      );
+      return;
+    }
+    // Phone is a real destination — do not loop the same question.
+    await saveSession(to, name, {
+      step: ConversationStep.AWAITING_SEND_DESTINATION,
+      pendingAmount: amount,
+      pendingPartner: `phone:${digits}`,
+    });
+    await sendWhatsAppMessage(
+      to,
+      askSendPhoneNotOnSendaText(locale, maskDestinationPhone(digits))
+    );
+    return;
   }
 
-  // CVU/alias alone still isn't a Stellar destination we can pay from chat.
+  if (looksLikeCvuOrAlias(text)) {
+    const label = text.trim().slice(0, 48);
+    await saveSession(to, name, {
+      step: ConversationStep.AWAITING_SEND_DESTINATION,
+      pendingAmount: amount,
+      pendingPartner: `rail:${label}`,
+    });
+    await sendWhatsAppMessage(to, askSendGotRailText(locale, label));
+    return;
+  }
+
+  const recipientName = extractRecipientName(text);
+  if (recipientName) {
+    await saveSession(to, name, {
+      step: ConversationStep.AWAITING_SEND_DESTINATION,
+      pendingAmount: amount,
+      pendingPartner: `name:${recipientName}`,
+    });
+    await sendWhatsAppMessage(
+      to,
+      askSendHowToPayNamedText(locale, recipientName)
+    );
+    return;
+  }
+
+  // Still missing a usable destination — ask again (or remind using the name we have).
+  const pendingName = session?.pendingPartner?.startsWith("name:")
+    ? session.pendingPartner.slice("name:".length)
+    : undefined;
+  if (pendingName) {
+    await sendWhatsAppMessage(
+      to,
+      askSendHowToPayNamedText(locale, pendingName)
+    );
+    return;
+  }
   await askForSendDestination(to, name, amount);
 }
 
@@ -769,34 +874,14 @@ async function paySep7Link(
       )
     );
     const payee = await findUserByPublicKey(parsed.destination);
-    if (
-      payee &&
-      normalizePhoneIdentity(payee.phone) !== normalizePhoneIdentity(to)
-    ) {
-      if (result.txHash) {
-        try {
-          const pdf = await buildCobroReceiptPdf({
-            amountLabel: formatUsdcLabel(amount),
-            payerLabel: name.trim() || "Senda",
-            txHash: result.txHash,
-          });
-          await sendWhatsAppMessage(payee.phone, payeeReceiptCaption("es"));
-          await sendWhatsAppDocument(payee.phone, pdf, {
-            filename: "comprobante-senda.pdf",
-            mimeType: "application/pdf",
-          });
-        } catch (receiptError) {
-          logSafeError(
-            "Cobro: no pude mandar el PDF al cobrador; sigo con el chat",
-            receiptError
-          );
-        }
-      }
-      await hydrateSession(payee.phone);
-      const payeeName = getSession(payee.phone)?.name ?? "";
-      await offerSavingsSlice(payee.phone, payeeName, amount, true).catch(
-        (error) => logSafeError("Oferta de ahorro al cobro", error)
-      );
+    if (payee?.phone) {
+      await notifyPayeeAfterTransfer({
+        payerPhone: to,
+        payerName: name,
+        payeePhone: payee.phone,
+        amount,
+        txHash: result.txHash,
+      });
     }
   } catch (error) {
     logSafeError("Error al pagar SEP-7", error);

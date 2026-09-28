@@ -18,9 +18,10 @@ export function getWelcomeVideoUrl(): string {
     return configured;
   }
 
+  // Media is served by the Render app; never point at the marketing host.
   const base = (
-    process.env.PUBLIC_BASE_URL?.trim() ||
     process.env.RENDER_EXTERNAL_URL?.trim() ||
+    process.env.PUBLIC_BASE_URL?.trim() ||
     ""
   ).replace(/\/$/, "");
 

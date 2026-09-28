@@ -291,9 +291,79 @@ export function mentionsThirdPartyRecipient(text: string): boolean {
   );
 }
 
+/** Phone digits suitable as a payment destination (not a short local pin). */
+export function extractDestinationPhone(text: string): string | null {
+  const digits = text.replace(/\D/g, "");
+  if (digits.length >= 10 && digits.length <= 15) {
+    return digits;
+  }
+  return null;
+}
+
+/**
+ * Recipient display name from replies like "A delphina", "para Juan", or "delphina".
+ * Returns null when the text is a phone, rail, link, or not a name.
+ */
+export function extractRecipientName(text: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed || extractDestinationPhone(trimmed)) {
+    return null;
+  }
+  if (hasExplicitPaymentDestination(trimmed)) {
+    return null;
+  }
+  const n = normalizeText(trimmed);
+  if (!n) {
+    return null;
+  }
+  const stripped = n
+    .replace(/^(?:a|para|to|for)\s+(?:mi\s+|my\s+)?/i, "")
+    .trim();
+  if (!stripped || stripped.length < 2 || stripped.length > 40) {
+    return null;
+  }
+  if (/^\d+$/.test(stripped.replace(/\s+/g, ""))) {
+    return null;
+  }
+  if (
+    /^(hola|hello|hi|menu|saldo|balance|mandar|enviar|send|cobro|apartar|rendir)$/i.test(
+      stripped
+    )
+  ) {
+    return null;
+  }
+  // Keep original casing/spacing for display when possible.
+  const display = trimmed
+    .replace(/^(?:a|para|to|for)\s+(?:mi\s+|my\s+)?/i, "")
+    .trim();
+  return display || stripped;
+}
+
+export function looksLikeCvuOrAlias(text: string): boolean {
+  const n = normalizeText(text);
+  if (/\b\d{22}\b/.test(n)) {
+    return true;
+  }
+  if (/\b(?:cvu|cbu|alias)\b/.test(n)) {
+    return true;
+  }
+  // Mercado Pago / bank alias: word with dots, no spaces, not a phone.
+  if (
+    !extractDestinationPhone(text) &&
+    /^[a-z0-9][a-z0-9._-]{5,}$/i.test(text.trim()) &&
+    /[._-]/.test(text.trim())
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export function hasExplicitPaymentDestination(text: string): boolean {
   const compact = text.replace(/\s+/g, "");
   if (/G[A-Z2-7]{55}/i.test(compact)) {
+    return true;
+  }
+  if (extractDestinationPhone(text)) {
     return true;
   }
   const n = normalizeText(text);

@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { classifyIntent, extractUsdAmount } from "./intent.service";
+import {
+  classifyIntent,
+  extractDestinationPhone,
+  extractRecipientName,
+  extractUsdAmount,
+  hasExplicitPaymentDestination,
+} from "./intent.service";
 
 test("el guion del sábado entra a cada flujo", () => {
   assert.equal(classifyIntent("hola").type, "menu");
@@ -82,4 +88,15 @@ test("enviar a un tercero pide destinatario y no acredita", () => {
     amount: 10,
   });
   assert.deepEqual(classifyIntent("mandar 5"), { type: "send", amount: 5 });
+});
+
+test("teléfono y nombre cuentan como destino real", () => {
+  assert.equal(
+    extractDestinationPhone("+54 9 11 2227-7589"),
+    "5491122277589"
+  );
+  assert.equal(hasExplicitPaymentDestination("+54 9 11 2227-7589"), true);
+  assert.equal(extractRecipientName("A delphina"), "delphina");
+  assert.equal(extractRecipientName("delphina"), "delphina");
+  assert.equal(extractRecipientName("+54 9 11 2227-7589"), null);
 });

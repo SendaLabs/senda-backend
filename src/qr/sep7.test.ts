@@ -60,10 +60,11 @@ test("el URI de cobro lleva un mensaje en español, no el default en inglés", (
 test("el boton Pagar abre WhatsApp, no un enlace web+stellar", () => {
   const previous = process.env.WHATSAPP_CLICK_TO_CHAT;
   process.env.WHATSAPP_CLICK_TO_CHAT = "15556186469";
-  const base = "https://senda-backend-2r5k.onrender.com";
+  const base = "https://withsenda.site";
   const url = cobroWhatsAppShareUrl("aabbcc", base);
   assert.match(url, /^https:\/\/wa\.me\/15556186469\?text=/);
-  assert.match(decodeURIComponent(url), /https:\/\/senda-backend-2r5k\.onrender\.com\/c\/aabbcc/);
+  assert.match(decodeURIComponent(url), /https:\/\/withsenda\.site\/c\/aabbcc/);
+  assert.doesNotMatch(decodeURIComponent(url), /onrender\.com/);
   assert.equal(/web\+stellar/i.test(url), false);
   assert.equal(cobroWhatsAppPayUrl("/c/aabbcc").includes("wa.me"), true);
   assert.equal(cobroShareLink("aabbcc", base), `${base}/c/aabbcc`);
@@ -78,7 +79,7 @@ test("reconoce el enlace corto de cobro", () => {
   );
   assert.equal(
     extractCobroToken(
-      "https://senda-backend-2r5k.onrender.com/c/aabbccddeeff00112233445566778899"
+      "https://withsenda.site/c/aabbccddeeff00112233445566778899"
     ),
     "aabbccddeeff00112233445566778899"
   );
@@ -86,7 +87,7 @@ test("reconoce el enlace corto de cobro", () => {
 
 test("el QR puede guardar un enlace https que la cámara sí lee", async () => {
   const png = await renderSep7QrPng(
-    cobroShareLink("aabbccdd", "https://senda-backend-2r5k.onrender.com")
+    cobroShareLink("aabbccdd", "https://withsenda.site")
   );
   assert.equal(png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])), true);
 });

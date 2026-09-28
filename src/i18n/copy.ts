@@ -42,6 +42,39 @@ export function askSendRecipientText(locale: Locale): string {
     : "¿A quién se lo mando y cómo le pago? Necesito su teléfono, CVU, alias o un link de cobro de Senda: sin un destino real no puedo enviar.";
 }
 
+export function askSendHowToPayNamedText(
+  locale: Locale,
+  recipientName: string
+): string {
+  const who = recipientName.trim() || (locale === "en" ? "them" : "esa persona");
+  return locale === "en"
+    ? `Got it — for ${who}. How do I pay them: their phone (if they're on Senda), CVU, alias, or a Senda payment link?`
+    : `Dale, para ${who}. ¿Cómo le pago: su teléfono (si tiene Senda), CVU, alias o un link de cobro?`;
+}
+
+export function askSendPhoneNotOnSendaText(
+  locale: Locale,
+  phoneLabel: string
+): string {
+  return locale === "en"
+    ? `I saved the number ${phoneLabel}. That person doesn't have a Senda wallet yet — send me their CVU/alias, a Senda payment link, or ask them to open Senda.`
+    : `Anoté el ${phoneLabel}. Esa persona todavía no tiene wallet en Senda: pasame su CVU/alias, un link de cobro, o que abra cuenta en Senda.`;
+}
+
+export function askSendGotRailText(locale: Locale, railLabel: string): string {
+  return locale === "en"
+    ? `Got ${railLabel}. For now chat P2P pays another Senda account or a payment link — if they open Senda or send you a link, we pay it right away.`
+    : `Anoté ${railLabel}. Por ahora el envío en el chat es a otra cuenta Senda o un link de cobro; si abren Senda o te mandan un link, lo pagamos al toque.`;
+}
+
+export function maskDestinationPhone(digits: string): string {
+  const d = digits.replace(/\D/g, "");
+  if (d.length < 6) {
+    return "****";
+  }
+  return `+${d.slice(0, 4)}…${d.slice(-3)}`;
+}
+
 export function returningGreetingText(name: string, locale: Locale): string {
   const first = name.trim().split(/\s+/)[0] || "";
   if (locale === "en") {
