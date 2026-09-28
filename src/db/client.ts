@@ -1,5 +1,9 @@
+import dns from "node:dns";
 import { Pool, type PoolClient } from "pg";
 import { SCHEMA, closeDb as closeSqlite, getDb } from "./sqlite";
+
+// Render free cannot open outbound IPv6 to Supabase direct hosts (ENETUNREACH).
+dns.setDefaultResultOrder("ipv4first");
 
 type SqlParam = string | number | bigint | null;
 
@@ -7,12 +11,50 @@ function sqliteArgs(params: SqlParam[]): never[] {
   return params as never[];
 }
 
+/**
+ * Supabase direct db.*.supabase.co often resolves to IPv6-only; Render free
+ * cannot reach it. Rewrite to the session pooler (IPv4) when needed.
+ */
+export function normalizePostgresUrl(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return "";
+  }
+  try {
+    const url = new URL(trimmed);
+    const direct = url.hostname.match(/^db\.([a-z0-9]+)\.supabase\.co$/i);
+    if (!direct) {
+      return trimmed;
+    }
+    const projectRef = direct[1];
+    const region =
+      process.env.SUPABASE_REGION?.trim() ||
+      process.env.SUPABASE_POOLER_REGION?.trim() ||
+      "sa-east-1";
+    url.hostname = `aws-0-${region}.pooler.supabase.com`;
+    // Pooler expects username as "role.projectRef".
+    if (url.username && !url.username.includes(".")) {
+      url.username = `${decodeURIComponent(url.username)}.${projectRef}`;
+    }
+    // Session mode (5432) keeps DDL used by ensurePostgres working.
+    if (!url.port || url.port === "5432") {
+      url.port = "5432";
+    }
+    if (!url.searchParams.has("sslmode")) {
+      url.searchParams.set("sslmode", "require");
+    }
+    return url.toString();
+  } catch {
+    return trimmed;
+  }
+}
+
 export function postgresUrl(): string {
-  return (
+  const raw =
     process.env.DATABASE_URL?.trim() ||
     process.env.SUPABASE_DB_URL?.trim() ||
-    ""
-  );
+    "";
+  return normalizePostgresUrl(raw);
 }
 
 export function usesPostgres(): boolean {

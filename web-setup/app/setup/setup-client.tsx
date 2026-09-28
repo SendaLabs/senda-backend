@@ -49,19 +49,20 @@ function isDuplicateSignerError(error: unknown): boolean {
 }
 
 function walletAlreadyHasSigner(
-  user: {
-    linkedAccounts?: Array<Record<string, unknown>>;
-    wallet?: Record<string, unknown> | null;
-  } | null,
+  user: unknown,
   walletAddress: string,
   signerId: string
 ): boolean {
-  if (!user || !signerId) {
+  if (!user || typeof user !== "object" || !signerId) {
     return false;
   }
   const needle = signerId.toLowerCase();
   const addr = walletAddress.toLowerCase();
-  const bags: unknown[] = [user.wallet, ...(user.linkedAccounts ?? [])];
+  const u = user as {
+    linkedAccounts?: unknown[];
+    wallet?: unknown;
+  };
+  const bags: unknown[] = [u.wallet, ...(u.linkedAccounts ?? [])];
   for (const bag of bags) {
     if (!bag || typeof bag !== "object") {
       continue;
@@ -73,9 +74,7 @@ function walletAlreadyHasSigner(
     }
     const signers = (row.signers ??
       row.authorizedSigners ??
-      (row as { additional_signers?: unknown }).additional_signers) as
-      | unknown[]
-      | undefined;
+      row.additional_signers) as unknown[] | undefined;
     if (!Array.isArray(signers)) {
       continue;
     }
