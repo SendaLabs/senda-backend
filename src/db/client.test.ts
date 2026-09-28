@@ -20,3 +20,10 @@ test("deja intacta una URI que ya usa el pooler", () => {
     "postgresql://senda_runtime.tkuneaualjfwjsqwmfpe:secret@aws-0-sa-east-1.pooler.supabase.com:5432/postgres";
   assert.equal(normalizePostgresUrl(raw), raw);
 });
+
+test("normalizePostgresUrl no inventa secretos al reescribir el host", () => {
+  const out = normalizePostgresUrl(
+    "postgresql://u:p@db.abc123.supabase.co:5432/postgres"
+  );
+  assert.match(out, /^postgresql:\/\/u\.abc123:p@aws-0-/);
+});

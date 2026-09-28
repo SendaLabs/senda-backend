@@ -70,15 +70,31 @@ function toPg(sql: string): string {
 let pool: Pool | null = null;
 let ready: Promise<void> | null = null;
 
+/** Drop URI sslmode so Pool `ssl` wins (Node 26 maps require→verify-full). */
+function connectionConfig(rawUrl: string): {
+  connectionString: string;
+  local: boolean;
+} {
+  const local = /localhost|127\.0\.0\.1/.test(rawUrl);
+  try {
+    const url = new URL(rawUrl);
+    url.searchParams.delete("sslmode");
+    url.searchParams.delete("ssl");
+    return { connectionString: url.toString(), local };
+  } catch {
+    return { connectionString: rawUrl, local };
+  }
+}
+
 function getPool(): Pool {
   if (pool) {
     return pool;
   }
-  const connectionString = postgresUrl();
-  const local = /localhost|127\.0\.0\.1/.test(connectionString);
+  const { connectionString, local } = connectionConfig(postgresUrl());
   pool = new Pool({
     connectionString,
     max: 5,
+    // Supabase pooler presents a chain Node 26 rejects under verify-full.
     ssl: local ? undefined : { rejectUnauthorized: false },
   });
   return pool;
